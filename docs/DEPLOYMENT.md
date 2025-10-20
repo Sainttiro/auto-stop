@@ -33,7 +33,7 @@
 ### 1. Подключение к серверу
 
 ```bash
-ssh user@your-server-ip -p 2222
+ssh user@your-server-ip -p 22
 ```
 
 ### 2. Установка Docker (если не установлен)
@@ -118,10 +118,10 @@ ls -la config/
 
 1. Создайте публичный репозиторий `auto-stop`
 2. Добавьте Secrets в Settings → Secrets and variables → Actions:
-   - `SERVER_HOST` - IP вашего сервера
+   - `SERVER_HOST` - IP вашего сервера (или Tailscale IP)
    - `SERVER_USER` - имя пользователя
    - `SERVER_SSH_KEY` - приватный SSH ключ
-   - `SERVER_PORT` - порт SSH (обычно 2222)
+   - `SERVER_PORT` - порт SSH (обычно 22 или 2222)
 
 ## Первое развертывание
 

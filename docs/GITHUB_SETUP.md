@@ -16,7 +16,7 @@
 
 ### SERVER_HOST
 - Name: `SERVER_HOST`
-- Value: IP адрес вашего сервера (например: `192.168.0.144`)
+- Value: IP адрес вашего сервера (для Tailscale используйте Tailscale IP)
 
 ### SERVER_USER
 - Name: `SERVER_USER`
@@ -24,11 +24,15 @@
 
 ### SERVER_PORT
 - Name: `SERVER_PORT`
-- Value: порт SSH (например: `2222`)
+- Value: порт SSH (обычно `22` или `2222`)
 
 ### SERVER_SSH_KEY
 - Name: `SERVER_SSH_KEY`
 - Value: приватный SSH ключ
+
+### TAILSCALE_AUTH_KEY
+- Name: `TAILSCALE_AUTH_KEY`
+- Value: Tailscale auth key (см. [TAILSCALE_SETUP.md](TAILSCALE_SETUP.md))
 
 #### Создание SSH ключа для GitHub Actions
 
@@ -112,6 +116,17 @@ git push origin v1.0.0
 Для использования образов:
 1. Они публичные, если репозиторий публичный
 2. Автоматически доступны для pull
+
+## Важно: Настройка Tailscale
+
+Если ваш сервер находится в локальной сети (как в вашем случае), вам нужно настроить Tailscale для доступа из GitHub Actions.
+
+**Подробная инструкция:** [TAILSCALE_SETUP.md](TAILSCALE_SETUP.md)
+
+Краткая версия:
+1. Получите Tailscale auth key на https://login.tailscale.com/admin/settings/keys
+2. Добавьте `TAILSCALE_AUTH_KEY` в GitHub Secrets
+3. Обновите `SERVER_HOST` на ваш Tailscale IP (узнайте командой `tailscale ip -4` на сервере)
 
 ## Готово!
 

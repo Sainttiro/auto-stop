@@ -13,7 +13,7 @@
 
 ```bash
 # Подключение к серверу
-ssh user@192.168.0.144 -p 2222
+ssh user@your-server-ip -p 22
 
 # Создание директории
 sudo mkdir -p /opt/projects/auto-stop
@@ -54,9 +54,9 @@ docker compose logs -f
 
 1. Создайте репозиторий `auto-stop` на GitHub (публичный)
 2. Добавьте Secrets:
-   - `SERVER_HOST`: `192.168.0.144`
-   - `SERVER_USER`: `user`
-   - `SERVER_PORT`: `2222`
+   - `SERVER_HOST`: IP вашего сервера (или Tailscale IP)
+   - `SERVER_USER`: имя пользователя
+   - `SERVER_PORT`: SSH порт (обычно 22 или 2222)
    - `SERVER_SSH_KEY`: ваш приватный SSH ключ
 
 ## Шаг 3: Деплой
