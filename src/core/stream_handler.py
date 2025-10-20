@@ -360,6 +360,10 @@ class StreamHandler:
             await self.db.add(trade)
             logger.debug(f"Сделка сохранена в БД: trade_id={trade_id}")
             
+            # Сохраняем старое количество для проверки изменений
+            old_position = await self.position_manager.get_position(account_id, figi)
+            old_quantity = old_position.quantity if old_position else 0
+            
             # Обновляем позицию
             logger.debug(f"Обновление позиции для {ticker}...")
             position = await self.position_manager.update_position_on_trade(
@@ -378,6 +382,20 @@ class StreamHandler:
                 return
             
             logger.info(f"Позиция обновлена: {ticker}, количество={position.quantity}, средняя цена={position.average_price}")
+            
+            # Проверяем, была ли позиция уменьшена (частичное закрытие)
+            is_partial_close = old_quantity > 0 and position.quantity < old_quantity and direction == "SELL"
+            
+            if is_partial_close:
+                logger.warning(
+                    f"⚠️ Частичное закрытие позиции {ticker}: "
+                    f"{old_quantity} → {position.quantity} лотов. "
+                    f"Отменяем старые ордера и выставляем новые на правильное количество."
+                )
+                
+                # Отменяем ВСЕ старые ордера для этой позиции
+                cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
+                logger.info(f"Отменено {cancelled_count} старых ордеров для {ticker}")
             
             # Получаем настройки инструмента
             instrument_settings = self.instruments_config.instruments.get(ticker)

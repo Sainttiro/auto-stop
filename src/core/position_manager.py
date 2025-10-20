@@ -531,21 +531,37 @@ class PositionManager:
                 # Если новое количество <= 0, закрываем позицию
                 if new_quantity <= 0:
                     logger.debug(f"update_position_on_trade: Закрытие позиции для {ticker}")
-                    await self.close_position(position.id)
-                    # Если новое количество < 0, создаем позицию в противоположном направлении
+                    
+                    # Если новое количество < 0, это попытка переворота позиции
                     if new_quantity < 0:
-                        logger.debug(f"update_position_on_trade: Создание позиции в противоположном направлении для {ticker}")
-                        new_direction = "SHORT" if position.direction == "LONG" else "LONG"
-                        # Используем внутренний метод БЕЗ блокировки (блокировка уже получена)
-                        return await self._create_position_unlocked(
+                        logger.error(
+                            f"⚠️ КРИТИЧНО: Попытка переворота позиции {ticker}! "
+                            f"Продано {quantity} при наличии {old_quantity}. "
+                            f"Это приведет к SHORT позиции на {abs(new_quantity)} лотов. "
+                            f"Закрываем позицию БЕЗ создания SHORT."
+                        )
+                        
+                        # Логируем критическое событие
+                        await self.db.log_event(
+                            event_type="POSITION_REVERSAL_PREVENTED",
                             account_id=account_id,
                             figi=figi,
                             ticker=ticker,
-                            instrument_type=instrument_type,
-                            quantity=abs(new_quantity),
-                            price=price,
-                            direction=new_direction
+                            description=(
+                                f"Предотвращен переворот позиции {ticker}: "
+                                f"продано {quantity} при наличии {old_quantity}. "
+                                f"Позиция закрыта без создания SHORT."
+                            ),
+                            details={
+                                "old_quantity": old_quantity,
+                                "sold_quantity": quantity,
+                                "would_be_short": abs(new_quantity),
+                                "prevented": True
+                            }
                         )
+                    
+                    # Закрываем позицию (без создания SHORT)
+                    await self.close_position(position.id)
                     return None
                 else:
                     # Просто уменьшаем количество
