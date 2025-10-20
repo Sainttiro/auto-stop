@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository_owner }}/auto-stop
 
 jobs:
   build-and-push:
@@ -83,11 +83,11 @@ jobs:
             cd /opt/projects/auto-stop
             
             # Pull latest changes
-            git pull origin main
+            git pull origin master
             
             # Set version from tag
             export VERSION=${{ github.ref_name }}
-            export GITHUB_REPOSITORY=${{ github.repository }}
+            export GITHUB_REPOSITORY=${{ github.repository_owner }}/auto-stop
             
             # Pull new image
             docker compose pull

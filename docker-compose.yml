@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   auto-stop:
     image: ghcr.io/${GITHUB_REPOSITORY:-yourusername/auto-stop}:${VERSION:-latest}
