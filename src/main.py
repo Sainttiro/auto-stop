@@ -77,9 +77,23 @@ class AutoStopSystem:
             self.database = Database()
             await self.database.create_tables()
             
+            # ПРИОРИТЕТ: Токен из БД > Токен из .env
+            active_account = await self.database.get_active_account()
+            
+            if active_account:
+                # Используем токен из БД
+                token = active_account.token
+                account_id = active_account.account_id
+                logger.info(f"🔑 Используется аккаунт из БД: {active_account.name} (ID: {account_id})")
+            else:
+                # Fallback на токен из .env
+                token = self.config.api.token
+                account_id = self.config.account_id
+                logger.warning("⚠️ Активный аккаунт не найден в БД, используется токен из конфигурации")
+            
             # Инициализация API клиента
             self.api_client = TinkoffAPIClient(
-                token=self.config.api.token,
+                token=token,
                 app_name=self.config.api.app_name
             )
             await self.api_client.__aenter__()
@@ -191,16 +205,27 @@ class AutoStopSystem:
             logger.error("Система не инициализирована")
             return
         
-        if not self.config.account_id:
-            logger.error("Не указан ID счета в конфигурации")
+        # Получаем account_id из активного аккаунта или из конфигурации
+        active_account = await self.database.get_active_account()
+        if active_account:
+            account_id = active_account.account_id
+        else:
+            account_id = self.config.account_id
+        
+        if not account_id:
+            logger.error("Не указан ID счета")
             return
         
         try:
             # Запускаем обработчик потоков
-            await self.stream_handler.start(self.config.account_id)
+            await self.stream_handler.start(account_id)
             
             self._running = True
-            logger.info(f"Система запущена для счета {self.config.account_id}")
+            logger.info(f"Система запущена для счета {account_id}")
+            
+            # Обновляем last_used_at если используется аккаунт из БД
+            if active_account:
+                await self.database.update_account_last_used(account_id)
             
             # Ожидаем сигнала завершения
             await self._shutdown_event.wait()
@@ -209,6 +234,99 @@ class AutoStopSystem:
             logger.error(f"Ошибка при запуске системы: {e}")
         finally:
             await self.shutdown()
+    
+    async def reload_api_client(self, new_account_name: Optional[str] = None):
+        """
+        Горячее переподключение к API с новым токеном
+        
+        Args:
+            new_account_name: Имя аккаунта для переключения (если None - перечитать активный)
+        """
+        logger.info("Начинаем переподключение API клиента...")
+        
+        try:
+            # 1. Переключить аккаунт в БД (если указан)
+            if new_account_name:
+                success = await self.database.switch_account(new_account_name)
+                if not success:
+                    raise ValueError(f"Аккаунт {new_account_name} не найден")
+            
+            # 2. Получить активный аккаунт из БД
+            active_account = await self.database.get_active_account()
+            if not active_account:
+                raise ValueError("Активный аккаунт не найден в БД")
+            
+            # 3. Остановить текущий stream handler
+            if self.stream_handler:
+                logger.info("Останавливаем stream handler...")
+                await self.stream_handler.stop()
+            
+            # 4. Закрыть текущий API клиент
+            if self.api_client:
+                logger.info("Закрываем текущий API клиент...")
+                await self.api_client.__aexit__(None, None, None)
+            
+            # 5. Создать новый API клиент с новым токеном
+            logger.info(f"Создаем новый API клиент для аккаунта '{active_account.name}'...")
+            self.api_client = TinkoffAPIClient(
+                token=active_account.token,
+                app_name=self.config.api.app_name
+            )
+            await self.api_client.__aenter__()
+            
+            # 6. Переинициализировать зависимые компоненты
+            logger.info("Переинициализируем зависимые компоненты...")
+            self.instrument_cache = InstrumentInfoCache(self.api_client)
+            
+            self.order_executor = OrderExecutor(
+                api_client=self.api_client,
+                database=self.database
+            )
+            
+            # Переинициализировать стратегии с новым executor
+            self._initialize_strategies()
+            
+            # 7. Создать новый stream handler
+            logger.info("Создаем новый stream handler...")
+            self.stream_handler = StreamHandler(
+                api_client=self.api_client,
+                database=self.database,
+                position_manager=self.position_manager,
+                risk_calculator=self.risk_calculator,
+                order_executor=self.order_executor,
+                config=self.config,
+                instruments_config=self.instruments_config,
+                instrument_cache=self.instrument_cache
+            )
+            
+            # 8. Запустить stream handler с новым account_id
+            logger.info(f"Запускаем stream handler для аккаунта {active_account.account_id}...")
+            await self.stream_handler.start(active_account.account_id)
+            
+            # 9. Обновить last_used_at
+            await self.database.update_account_last_used(active_account.account_id)
+            
+            logger.info(f"✅ Переподключение завершено. Активный аккаунт: {active_account.name}")
+            
+            # Отправить уведомление в Telegram
+            if self.telegram_notifier:
+                await self.telegram_notifier.send_message(
+                    f"✅ Переключение на аккаунт <b>{active_account.name}</b> завершено!\n"
+                    f"🆔 Account ID: <code>{active_account.account_id}</code>"
+                )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при переподключении: {e}")
+            
+            # Отправить уведомление об ошибке
+            if self.telegram_notifier:
+                await self.telegram_notifier.send_message(
+                    f"❌ Ошибка при переподключении: {str(e)}"
+                )
+            
+            raise
     
     async def shutdown(self):
         """

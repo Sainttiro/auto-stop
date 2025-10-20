@@ -149,3 +149,21 @@ class Setting(Base):
     
     def __repr__(self):
         return f"<Setting(key={self.key}, value={self.value[:50]}...)>"
+
+
+class Account(Base):
+    """Модель счета Tinkoff"""
+    __tablename__ = "accounts"
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    token = Column(Text, nullable=False)  # Зашифрованный токен
+    account_id = Column(String(50), nullable=False, index=True)
+    is_active = Column(Boolean, default=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+    
+    def __repr__(self):
+        return f"<Account(name={self.name}, account_id={self.account_id}, active={self.is_active})>"

@@ -9,8 +9,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from sqlalchemy import update, delete
 
-from src.storage.models import Base, Position, Order, Trade, MultiTakeProfitLevel, SystemEvent, Setting
+from src.storage.models import Base, Position, Order, Trade, MultiTakeProfitLevel, SystemEvent, Setting, Account
 from src.utils.logger import get_logger
+from datetime import datetime
 
 logger = get_logger("storage.database")
 
@@ -409,3 +410,177 @@ class Database:
                 
                 await session.commit()
                 logger.info(f"Настройка {key} обновлена")
+    
+    # Методы для работы с аккаунтами
+    
+    async def get_all_accounts(self) -> List[Account]:
+        """
+        Получение всех аккаунтов
+        
+        Returns:
+            List[Account]: Список всех аккаунтов
+        """
+        async with self.get_session() as session:
+            stmt = select(Account).order_by(Account.created_at)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+    
+    async def get_active_account(self) -> Optional[Account]:
+        """
+        Получение активного аккаунта
+        
+        Returns:
+            Optional[Account]: Активный аккаунт или None
+        """
+        async with self.get_session() as session:
+            stmt = select(Account).where(Account.is_active == True)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+    
+    async def get_account_by_name(self, name: str) -> Optional[Account]:
+        """
+        Получение аккаунта по имени
+        
+        Args:
+            name: Название аккаунта
+            
+        Returns:
+            Optional[Account]: Найденный аккаунт или None
+        """
+        async with self.get_session() as session:
+            stmt = select(Account).where(Account.name == name)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+    
+    async def add_account(self, name: str, token: str, account_id: str, 
+                         description: Optional[str] = None) -> Account:
+        """
+        Добавление нового аккаунта
+        
+        Args:
+            name: Название аккаунта (уникальное)
+            token: Токен API
+            account_id: ID счета в Tinkoff
+            description: Описание аккаунта
+            
+        Returns:
+            Account: Созданный аккаунт
+            
+        Raises:
+            ValueError: Если аккаунт с таким именем уже существует
+        """
+        async with self._lock:
+            async with self.get_session() as session:
+                # Проверяем, существует ли аккаунт с таким именем
+                stmt = select(Account).where(Account.name == name)
+                result = await session.execute(stmt)
+                existing = result.scalar_one_or_none()
+                
+                if existing:
+                    raise ValueError(f"Аккаунт с именем '{name}' уже существует")
+                
+                # Создаем новый аккаунт
+                account = Account(
+                    name=name,
+                    token=token,
+                    account_id=account_id,
+                    description=description,
+                    is_active=False  # По умолчанию не активный
+                )
+                
+                session.add(account)
+                await session.commit()
+                await session.refresh(account)
+                
+                logger.info(f"Аккаунт '{name}' добавлен (ID: {account_id})")
+                return account
+    
+    async def remove_account(self, name: str) -> bool:
+        """
+        Удаление аккаунта по имени
+        
+        Args:
+            name: Название аккаунта
+            
+        Returns:
+            bool: True, если аккаунт был удален
+            
+        Raises:
+            ValueError: Если пытаемся удалить активный аккаунт
+        """
+        async with self._lock:
+            async with self.get_session() as session:
+                # Получаем аккаунт
+                stmt = select(Account).where(Account.name == name)
+                result = await session.execute(stmt)
+                account = result.scalar_one_or_none()
+                
+                if not account:
+                    logger.warning(f"Аккаунт '{name}' не найден")
+                    return False
+                
+                # Проверяем, не активный ли это аккаунт
+                if account.is_active:
+                    raise ValueError(f"Нельзя удалить активный аккаунт '{name}'. Сначала переключитесь на другой аккаунт.")
+                
+                # Удаляем аккаунт
+                await session.delete(account)
+                await session.commit()
+                
+                logger.info(f"Аккаунт '{name}' удален")
+                return True
+    
+    async def switch_account(self, name: str) -> bool:
+        """
+        Переключение активного аккаунта
+        
+        Args:
+            name: Название аккаунта для активации
+            
+        Returns:
+            bool: True, если переключение успешно
+            
+        Raises:
+            ValueError: Если аккаунт не найден
+        """
+        async with self._lock:
+            async with self.get_session() as session:
+                # Получаем аккаунт для активации
+                stmt = select(Account).where(Account.name == name)
+                result = await session.execute(stmt)
+                account = result.scalar_one_or_none()
+                
+                if not account:
+                    raise ValueError(f"Аккаунт '{name}' не найден")
+                
+                # Деактивируем все аккаунты
+                stmt = update(Account).values(is_active=False)
+                await session.execute(stmt)
+                
+                # Активируем выбранный аккаунт
+                account.is_active = True
+                account.updated_at = datetime.utcnow()
+                
+                await session.commit()
+                
+                logger.info(f"Активный аккаунт переключен на '{name}'")
+                return True
+    
+    async def update_account_last_used(self, account_id: str):
+        """
+        Обновление времени последнего использования аккаунта
+        
+        Args:
+            account_id: ID счета в Tinkoff
+        """
+        async with self._lock:
+            async with self.get_session() as session:
+                stmt = update(Account).where(
+                    Account.account_id == account_id
+                ).values(
+                    last_used_at=datetime.utcnow()
+                )
+                await session.execute(stmt)
+                await session.commit()
+                
+                logger.debug(f"Обновлено время использования для аккаунта {account_id}")
