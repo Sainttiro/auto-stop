@@ -3,6 +3,9 @@ name: Build and Deploy Release
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -83,7 +86,7 @@ jobs:
             git pull origin main
             
             # Set version from tag
-            export VERSION=${{ github.event.release.tag_name || github.event.inputs.version }}
+            export VERSION=${{ github.ref_name }}
             export GITHUB_REPOSITORY=${{ github.repository }}
             
             # Pull new image
@@ -103,7 +106,7 @@ jobs:
         if: success()
         run: |
           echo "✅ Deployment successful!"
-          echo "Version: ${{ github.event.release.tag_name || github.event.inputs.version }}"
+          echo "Version: ${{ github.ref_name }}"
 
       - name: Notify on failure
         if: failure()
