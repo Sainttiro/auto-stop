@@ -309,8 +309,8 @@ class AutoStopSystem:
             logger.info(f"✅ Переподключение завершено. Активный аккаунт: {active_account.name}")
             
             # Отправить уведомление в Telegram
-            if self.telegram_notifier:
-                await self.telegram_notifier.send_message(
+            if self.telegram_bot:
+                await self.telegram_bot.send_message(
                     f"✅ Переключение на аккаунт <b>{active_account.name}</b> завершено!\n"
                     f"🆔 Account ID: <code>{active_account.account_id}</code>"
                 )
@@ -321,8 +321,8 @@ class AutoStopSystem:
             logger.error(f"❌ Ошибка при переподключении: {e}")
             
             # Отправить уведомление об ошибке
-            if self.telegram_notifier:
-                await self.telegram_notifier.send_message(
+            if self.telegram_bot:
+                await self.telegram_bot.send_message(
                     f"❌ Ошибка при переподключении: {str(e)}"
                 )
             
