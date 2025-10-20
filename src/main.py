@@ -17,6 +17,7 @@ from src.strategies.stock_sl_tp import StockStrategy
 from src.strategies.futures_sl_tp import FuturesStrategy
 from src.strategies.multi_tp import MultiTakeProfitStrategy
 from src.notifications.telegram import TelegramNotifier
+from src.bot.bot import TelegramBot
 from src.utils.logger import setup_logger, get_logger
 
 logger = get_logger("main")
@@ -49,6 +50,7 @@ class AutoStopSystem:
         self.order_executor = None
         self.stream_handler = None
         self.telegram_notifier = None
+        self.telegram_bot = None
         
         # Стратегии
         self.strategies = {}
@@ -124,6 +126,16 @@ class AutoStopSystem:
             if self.config.telegram and self.config.telegram.bot_token and self.config.telegram.chat_id:
                 self.telegram_notifier = TelegramNotifier(settings=self.config.telegram)
                 await self.telegram_notifier.start()
+                
+                # Инициализация интерактивного Telegram бота
+                self.telegram_bot = TelegramBot(
+                    token=self.config.telegram.bot_token,
+                    chat_id=self.config.telegram.chat_id,
+                    database=self.database,
+                    position_manager=self.position_manager,
+                    system_control=self
+                )
+                await self.telegram_bot.start()
             
             # Инициализация обработчика потоков
             self.stream_handler = StreamHandler(
@@ -217,6 +229,15 @@ class AutoStopSystem:
                     logger.info("Обработчик потоков остановлен")
                 except asyncio.TimeoutError:
                     logger.warning("Таймаут при остановке обработчика потоков (5 сек)")
+            
+            # Останавливаем Telegram бота с таймаутом
+            if self.telegram_bot:
+                logger.info("Останавливаем Telegram бота...")
+                try:
+                    await asyncio.wait_for(self.telegram_bot.stop(), timeout=2.0)
+                    logger.info("Telegram бот остановлен")
+                except asyncio.TimeoutError:
+                    logger.warning("Таймаут при остановке Telegram бота (2 сек)")
             
             # Останавливаем Telegram уведомления с таймаутом
             if self.telegram_notifier:
