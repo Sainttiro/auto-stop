@@ -59,10 +59,11 @@ class OrderExecutor:
         direction = StopOrderDirection.STOP_ORDER_DIRECTION_SELL \
             if position.direction == "LONG" else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
         
-        # Для фьючерсов используем STOP_LIMIT, для акций - STOP_LOSS
-        # STOP_LOSS для фьючерсов не поддерживается API и выставляется как рыночный ордер
+        # Для акций используем STOP_LIMIT, для фьючерсов - STOP_LOSS
+        # STOP_LIMIT для акций гарантирует исполнение по указанной цене или лучше
+        # STOP_LOSS для фьючерсов выставляется как рыночный ордер
         stop_order_type = StopOrderType.STOP_ORDER_TYPE_STOP_LIMIT \
-            if position.instrument_type == "futures" else StopOrderType.STOP_ORDER_TYPE_STOP_LOSS
+            if position.instrument_type == "stock" else StopOrderType.STOP_ORDER_TYPE_STOP_LOSS
         
         try:
             # Выставляем ордер через API (передаем параметры напрямую)
@@ -94,7 +95,7 @@ class OrderExecutor:
             
             await self.db.add(order)
             
-            order_type_name = "STOP_LIMIT" if position.instrument_type == "futures" else "STOP_LOSS"
+            order_type_name = "STOP_LIMIT" if position.instrument_type == "stock" else "STOP_LOSS"
             logger.info(
                 f"Выставлен стоп-лосс ({order_type_name}) для {position.ticker} ({position.instrument_type}): "
                 f"цена={stop_price}, количество={position.quantity}, "
