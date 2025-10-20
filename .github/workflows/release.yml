@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/auto-stop
+  IMAGE_NAME: sainttiro/auto-stop
 
 jobs:
   build-and-push:
@@ -87,7 +87,7 @@ jobs:
             
             # Set version from tag
             export VERSION=${{ github.ref_name }}
-            export GITHUB_REPOSITORY=${{ github.repository_owner }}/auto-stop
+            export GITHUB_REPOSITORY=sainttiro/auto-stop
             
             # Pull new image
             docker compose pull
