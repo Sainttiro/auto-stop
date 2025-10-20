@@ -85,8 +85,8 @@ jobs:
             # Pull latest changes
             git pull origin master
             
-            # Set version from tag
-            export VERSION=${{ github.ref_name }}
+            # Set version from tag (remove 'v' prefix)
+            export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
             export GITHUB_REPOSITORY=sainttiro/auto-stop
             
             # Pull new image
