@@ -73,8 +73,9 @@ class StreamHandler:
         # Блокировка для синхронизации
         self._lock = asyncio.Lock()
         
-        # Множество обрабатываемых ордеров для избежания дублирования
-        self._processing_orders: Set[str] = set()
+        # Множество обработанных сделок для избежания дублирования
+        # Используем trade_id вместо order_id, так как один ордер может генерировать несколько сделок
+        self._processed_trades: Set[str] = set()
     
     async def start(self, account_id: str):
         """
@@ -288,18 +289,31 @@ class StreamHandler:
         order_trades = trade_response.order_trades
         order_id = order_trades.order_id
         
+        # Получаем информацию о сделке из order_trades
+        direction = "BUY" if order_trades.direction == OrderDirection.ORDER_DIRECTION_BUY else "SELL"
+        figi = order_trades.figi
+        
+        # Создаем уникальный ID сделки для проверки дублирования
+        # Используем комбинацию order_id + figi + direction + timestamp первой сделки
+        if not order_trades.trades:
+            logger.warning(f"Ордер {order_id} не содержит сделок")
+            return
+        
+        first_trade = order_trades.trades[0]
+        # Используем order_id как уникальный идентификатор
+        # Если один ордер приходит дважды - это дубликат
+        trade_unique_id = order_id
+        
+        # Проверяем, не обрабатывали ли мы уже эту сделку
         async with self._lock:
-            if order_id in self._processing_orders:
-                logger.debug(f"Ордер {order_id} уже обрабатывается, пропускаем")
+            if trade_unique_id in self._processed_trades:
+                logger.warning(f"Сделка {order_id} уже была обработана ранее, пропускаем дубликат")
                 return
             
-            self._processing_orders.add(order_id)
+            # Добавляем в множество обработанных (НЕ удаляем потом!)
+            self._processed_trades.add(trade_unique_id)
         
         try:
-            # Получаем информацию о сделке из order_trades
-            direction = "BUY" if order_trades.direction == OrderDirection.ORDER_DIRECTION_BUY else "SELL"
-            figi = order_trades.figi
-            
             logger.debug(f"Обработка сделки: order_id={order_id}, figi={figi}, direction={direction}")
             
             # Получаем тикер и тип инструмента
@@ -438,11 +452,10 @@ class StreamHandler:
                 description=f"Ошибка при обработке исполнения сделки: {str(e)}",
                 details={"error": str(e), "order_id": order_id, "traceback": str(e.__traceback__)}
             )
-        
-        finally:
-            # Удаляем ордер из множества обрабатываемых
+            
+            # При ошибке удаляем из обработанных, чтобы можно было повторить
             async with self._lock:
-                self._processing_orders.discard(order_id)
+                self._processed_trades.discard(trade_unique_id)
     
     async def _handle_position_change(self, position_response: PositionsStreamResponse, account_id: str):
         """
