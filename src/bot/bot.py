@@ -3,8 +3,9 @@ Telegram Bot для управления системой Auto-Stop
 """
 
 import asyncio
+import os
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -62,11 +63,13 @@ class TelegramBot:
             
             # Регистрация обработчиков команд
             self.application.add_handler(CommandHandler("start", self.cmd_start))
+            self.application.add_handler(CommandHandler("stop", self.cmd_stop_system))
             self.application.add_handler(CommandHandler("help", self.cmd_help))
             self.application.add_handler(CommandHandler("status", self.cmd_status))
             self.application.add_handler(CommandHandler("positions", self.cmd_positions))
             self.application.add_handler(CommandHandler("stats", self.cmd_stats))
             self.application.add_handler(CommandHandler("logs", self.cmd_logs))
+            self.application.add_handler(CommandHandler("set_token", self.cmd_set_token))
             
             # Запуск бота
             await self.application.initialize()
@@ -136,11 +139,16 @@ class TelegramBot:
         """Обработчик команды /help"""
         await update.message.reply_text(
             "📖 <b>Справка по командам</b>\n\n"
-            "<b>/status</b> - Показывает статус системы (работает/остановлена, uptime)\n"
-            "<b>/positions</b> - Список текущих открытых позиций с P&L\n"
-            "<b>/stats</b> - Статистика по сделкам и прибыли\n"
-            "<b>/logs</b> - Последние 10 записей из логов\n"
-            "<b>/help</b> - Эта справка\n\n"
+            "<b>Информация:</b>\n"
+            "/status - Статус системы (uptime, состояние)\n"
+            "/positions - Список открытых позиций\n"
+            "/stats - Статистика по сделкам\n"
+            "/logs - Последние события\n\n"
+            "<b>Управление:</b>\n"
+            "/stop - Остановить мониторинг\n"
+            "/set_token - Обновить Tinkoff API токен\n\n"
+            "<b>Прочее:</b>\n"
+            "/help - Эта справка\n\n"
             "💡 <i>Все команды работают только для авторизованного пользователя</i>",
             parse_mode='HTML'
         )
@@ -256,4 +264,109 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"Ошибка в cmd_logs: {e}")
+            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    
+    async def cmd_set_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /set_token"""
+        try:
+            # Проверка авторизации
+            if str(update.effective_chat.id) != self.chat_id:
+                await update.message.reply_text("❌ Доступ запрещен")
+                return
+            
+            # Удаление сообщения с токеном для безопасности
+            try:
+                await update.message.delete()
+            except:
+                pass
+            
+            # Проверка аргументов
+            if not context.args or len(context.args) == 0:
+                await self.send_message(
+                    "❌ <b>Ошибка</b>\n\n"
+                    "Использование: <code>/set_token НОВЫЙ_ТОКЕН</code>\n\n"
+                    "⚠️ Сообщение с токеном будет автоматически удалено"
+                )
+                return
+            
+            new_token = context.args[0]
+            
+            # Путь к .env файлу
+            env_path = "/app/.env"
+            if not os.path.exists(env_path):
+                env_path = ".env"
+            
+            # Чтение текущего .env
+            if os.path.exists(env_path):
+                with open(env_path, 'r') as f:
+                    lines = f.readlines()
+                
+                # Обновление токена
+                updated = False
+                for i, line in enumerate(lines):
+                    if line.startswith('TINKOFF_TOKEN='):
+                        lines[i] = f'TINKOFF_TOKEN={new_token}\n'
+                        updated = True
+                        break
+                
+                # Если токен не найден, добавляем
+                if not updated:
+                    lines.append(f'TINKOFF_TOKEN={new_token}\n')
+                
+                # Запись обновленного .env
+                with open(env_path, 'w') as f:
+                    f.writelines(lines)
+                
+                logger.info("Токен Tinkoff API обновлен через Telegram бот")
+                
+                await self.send_message(
+                    "✅ <b>Токен обновлен!</b>\n\n"
+                    "⚠️ Для применения изменений необходимо перезапустить контейнер:\n"
+                    "<code>docker compose restart</code>\n\n"
+                    "Или подождите автоматического перезапуска при следующем деплое."
+                )
+            else:
+                await self.send_message(
+                    "❌ <b>Ошибка</b>\n\n"
+                    "Файл .env не найден"
+                )
+            
+        except Exception as e:
+            logger.error(f"Ошибка в cmd_set_token: {e}")
+            await self.send_message(f"❌ Ошибка при обновлении токена: {str(e)}")
+    
+    async def cmd_stop_system(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /stop"""
+        try:
+            # Проверка авторизации
+            if str(update.effective_chat.id) != self.chat_id:
+                await update.message.reply_text("❌ Доступ запрещен")
+                return
+            
+            if self.system_control and hasattr(self.system_control, 'stop'):
+                await self.system_control.stop()
+                
+                # Получение количества активных позиций
+                positions = await self.db.get_open_positions()
+                
+                await update.message.reply_text(
+                    "⏸️ <b>Система остановлена</b>\n\n"
+                    f"📊 Активных позиций: <b>{len(positions)}</b>\n"
+                    f"🔴 Мониторинг: <b>выключен</b>\n"
+                    f"🔴 Автоордера: <b>выключены</b>\n\n"
+                    "Используйте <code>/start</code> для возобновления работы",
+                    parse_mode='HTML'
+                )
+                
+                logger.info("Система остановлена через Telegram бот")
+            else:
+                await update.message.reply_text(
+                    "❌ <b>Ошибка</b>\n\n"
+                    "Управление системой недоступно.\n"
+                    "Функция остановки не реализована.",
+                    parse_mode='HTML'
+                )
+            
+        except Exception as e:
+            logger.error(f"Ошибка в cmd_stop_system: {e}")
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
