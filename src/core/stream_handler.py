@@ -383,12 +383,13 @@ class StreamHandler:
             
             logger.info(f"Позиция обновлена: {ticker}, количество={position.quantity}, средняя цена={position.average_price}")
             
-            # Проверяем, была ли позиция уменьшена (частичное закрытие)
-            is_partial_close = old_quantity > 0 and position.quantity < old_quantity and direction == "SELL"
+            # Проверяем, изменилось ли количество в позиции (увеличение или уменьшение)
+            is_position_changed = old_quantity > 0 and position.quantity != old_quantity
             
-            if is_partial_close:
+            if is_position_changed:
+                change_type = "увеличена" if position.quantity > old_quantity else "уменьшена"
                 logger.warning(
-                    f"⚠️ Частичное закрытие позиции {ticker}: "
+                    f"⚠️ Позиция {ticker} {change_type}: "
                     f"{old_quantity} → {position.quantity} лотов. "
                     f"Отменяем старые ордера и выставляем новые на правильное количество."
                 )
