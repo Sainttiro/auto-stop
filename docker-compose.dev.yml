@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  auto-stop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auto-stop-dev
+    restart: unless-stopped
+
+    environment:
+      # API Configuration
+      - TINKOFF_TOKEN=${TINKOFF_TOKEN}
+
+      # Telegram Configuration
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+      # Account Configuration
+      - ACCOUNT_ID=${ACCOUNT_ID:-}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+
+    volumes:
+      # Persistent data
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+      # Configuration files
+      - ./config:/app/config:ro
+
+      # Mount source code for development (hot reload)
+      - ./src:/app/src:ro
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Network
+    networks:
+      - auto-stop-network
+
+networks:
+  auto-stop-network:
+    driver: bridge

@@ -1,0 +1,44 @@
+api:
+  token_env: "TINKOFF_TOKEN"  # Имя переменной окружения с токеном API
+  app_name: "AutoStopSystem"
+  
+default_settings:
+  stocks:
+    stop_loss_pct: 0.4        # 2% стоп-лосс
+    take_profit_pct: 1.0      # 5% тейк-профит
+  futures:
+    stop_loss_pct: 0.4        # 2% стоп-лосс (новый подход - в процентах)
+    take_profit_pct: 1.0      # 5% тейк-профит (новый подход - в процентах)
+    stop_loss_steps: 10       # 10 шагов цены (для обратной совместимости)
+    take_profit_steps: 30     # 30 шагов цены (для обратной совместимости)
+
+multi_take_profit:
+  enabled: false              # По умолчанию отключено
+  levels:
+    - level_pct: 1.0          # +1% от средней цены
+      volume_pct: 25          # Закрыть 25% позиции
+    - level_pct: 2.0          # +2% от средней цены
+      volume_pct: 25          # Закрыть 25% позиции
+    - level_pct: 3.0          # +3% от средней цены
+      volume_pct: 50          # Закрыть 50% позиции
+
+telegram:
+  bot_token_env: "TELEGRAM_BOT_TOKEN"
+  chat_id_env: "TELEGRAM_CHAT_ID"
+  notifications:
+    - system_start            # Уведомление о запуске системы
+    - trade_executed          # Уведомления об исполнении сделок
+    - order_placed            # Уведомления о выставлении ордеров
+    - stop_triggered          # Уведомления о срабатывании стопов
+    - position_created        # Уведомления о создании позиций
+    - position_closed         # Уведомления о закрытии позиций
+    - errors                  # Уведомления об ошибках
+
+logging:
+  level: "DEBUG"              # Уровень логирования
+  file: "logs/system.log"     # Файл для логов
+  max_bytes: 10485760         # 10MB максимальный размер файла
+  backup_count: 5             # Количество файлов ротации
+
+# ID счета в Tinkoff Invest
+account_id: "2263388217"      # ID счета "АпиБаффет"

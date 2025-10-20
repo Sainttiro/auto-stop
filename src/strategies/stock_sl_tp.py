@@ -1,0 +1,165 @@
+from typing import Dict, Optional, Tuple, List
+from decimal import Decimal
+
+from src.storage.models import Position, Order
+from src.config.settings import InstrumentSettings
+from src.core.risk_calculator import RiskCalculator
+from src.core.order_executor import OrderExecutor
+from src.strategies.base import BaseStrategy
+from src.utils.logger import get_logger
+
+logger = get_logger("strategies.stock_sl_tp")
+
+
+class StockStrategy(BaseStrategy):
+    """
+    Стратегия управления стоп-лоссами и тейк-профитами для акций
+    """
+    
+    async def process_position(
+        self,
+        position: Position,
+        instrument_settings: Optional[InstrumentSettings] = None
+    ) -> bool:
+        """
+        Обработка позиции - расчет и выставление SL/TP для акций
+        
+        Args:
+            position: Позиция
+            instrument_settings: Индивидуальные настройки инструмента
+            
+        Returns:
+            bool: True, если ордера успешно выставлены
+        """
+        try:
+            # Проверяем, что это акция
+            if position.instrument_type != "stock":
+                logger.warning(f"Позиция {position.ticker} не является акцией, пропускаем")
+                return False
+            
+            # Получаем среднюю цену
+            avg_price = Decimal(str(position.average_price))
+            
+            # Рассчитываем уровни SL/TP
+            sl_price, tp_price = await self.risk_calculator.calculate_levels(
+                figi=position.figi,
+                ticker=position.ticker,
+                instrument_type=position.instrument_type,
+                avg_price=avg_price,
+                direction=position.direction,
+                instrument_settings=instrument_settings
+            )
+            
+            # Выставляем ордера
+            sl_order, tp_order = await self.order_executor.place_sl_tp_orders(
+                position=position,
+                sl_price=sl_price,
+                tp_price=tp_price
+            )
+            
+            # Проверяем результат
+            if sl_order and tp_order:
+                logger.info(
+                    f"Выставлены SL/TP для {position.ticker}: "
+                    f"SL={sl_price} ({sl_order.order_id}), "
+                    f"TP={tp_price} ({tp_order.order_id})"
+                )
+                return True
+            else:
+                logger.error(f"Не удалось выставить SL/TP для {position.ticker}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Ошибка при обработке позиции {position.ticker}: {e}")
+            return False
+    
+    async def recalculate_levels(
+        self,
+        position: Position,
+        instrument_settings: Optional[InstrumentSettings] = None
+    ) -> bool:
+        """
+        Пересчет уровней SL/TP при изменении средней цены для акций
+        
+        Args:
+            position: Позиция
+            instrument_settings: Индивидуальные настройки инструмента
+            
+        Returns:
+            bool: True, если ордера успешно перевыставлены
+        """
+        try:
+            # Проверяем, что это акция
+            if position.instrument_type != "stock":
+                logger.warning(f"Позиция {position.ticker} не является акцией, пропускаем")
+                return False
+            
+            # Получаем среднюю цену
+            avg_price = Decimal(str(position.average_price))
+            
+            # Рассчитываем уровни SL/TP
+            sl_price, tp_price = await self.risk_calculator.calculate_levels(
+                figi=position.figi,
+                ticker=position.ticker,
+                instrument_type=position.instrument_type,
+                avg_price=avg_price,
+                direction=position.direction,
+                instrument_settings=instrument_settings
+            )
+            
+            # Отменяем существующие ордера и выставляем новые
+            cancelled = await self.order_executor.cancel_all_position_orders(position.id)
+            logger.info(f"Отменено {cancelled} ордеров для {position.ticker}")
+            
+            # Выставляем новые ордера
+            sl_order, tp_order = await self.order_executor.place_sl_tp_orders(
+                position=position,
+                sl_price=sl_price,
+                tp_price=tp_price
+            )
+            
+            # Проверяем результат
+            if sl_order and tp_order:
+                logger.info(
+                    f"Перевыставлены SL/TP для {position.ticker}: "
+                    f"SL={sl_price} ({sl_order.order_id}), "
+                    f"TP={tp_price} ({tp_order.order_id})"
+                )
+                return True
+            else:
+                logger.error(f"Не удалось перевыставить SL/TP для {position.ticker}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Ошибка при пересчете уровней для {position.ticker}: {e}")
+            return False
+    
+    async def handle_partial_close(
+        self,
+        position: Position,
+        closed_quantity: int,
+        instrument_settings: Optional[InstrumentSettings] = None
+    ) -> bool:
+        """
+        Обработка частичного закрытия позиции для акций
+        
+        Args:
+            position: Позиция
+            closed_quantity: Закрытое количество
+            instrument_settings: Индивидуальные настройки инструмента
+            
+        Returns:
+            bool: True, если ордера успешно перевыставлены
+        """
+        try:
+            # Проверяем, что это акция
+            if position.instrument_type != "stock":
+                logger.warning(f"Позиция {position.ticker} не является акцией, пропускаем")
+                return False
+            
+            # Для акций просто пересчитываем уровни с новым количеством
+            return await self.recalculate_levels(position, instrument_settings)
+                
+        except Exception as e:
+            logger.error(f"Ошибка при обработке частичного закрытия для {position.ticker}: {e}")
+            return False

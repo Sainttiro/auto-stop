@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  auto-stop:
+    image: ghcr.io/${GITHUB_REPOSITORY:-yourusername/auto-stop}:${VERSION:-latest}
+    container_name: auto-stop
+    restart: unless-stopped
+
+    environment:
+      # API Configuration
+      - TINKOFF_TOKEN=${TINKOFF_TOKEN}
+
+      # Telegram Configuration
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+      # Account Configuration
+      - ACCOUNT_ID=${ACCOUNT_ID:-}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+    volumes:
+      # Persistent data
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+      # Configuration files
+      - ./config:/app/config:ro
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Health check
+    healthcheck:
+      test: [ "CMD", "python3", "-c", "import sys; sys.exit(0)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Network
+    networks:
+      - auto-stop-network
+
+networks:
+  auto-stop-network:
+    driver: bridge
