@@ -291,45 +291,21 @@ class TelegramBot:
             
             new_token = context.args[0]
             
-            # Путь к .env файлу
-            env_path = "/app/.env"
-            if not os.path.exists(env_path):
-                env_path = ".env"
+            # Сохраняем токен в базу данных
+            await self.db.set_setting(
+                key="tinkoff_token",
+                value=new_token,
+                description="Tinkoff API токен (обновлен через Telegram бот)"
+            )
             
-            # Чтение текущего .env
-            if os.path.exists(env_path):
-                with open(env_path, 'r') as f:
-                    lines = f.readlines()
-                
-                # Обновление токена
-                updated = False
-                for i, line in enumerate(lines):
-                    if line.startswith('TINKOFF_TOKEN='):
-                        lines[i] = f'TINKOFF_TOKEN={new_token}\n'
-                        updated = True
-                        break
-                
-                # Если токен не найден, добавляем
-                if not updated:
-                    lines.append(f'TINKOFF_TOKEN={new_token}\n')
-                
-                # Запись обновленного .env
-                with open(env_path, 'w') as f:
-                    f.writelines(lines)
-                
-                logger.info("Токен Tinkoff API обновлен через Telegram бот")
-                
-                await self.send_message(
-                    "✅ <b>Токен обновлен!</b>\n\n"
-                    "⚠️ Для применения изменений необходимо перезапустить контейнер:\n"
-                    "<code>docker compose restart</code>\n\n"
-                    "Или подождите автоматического перезапуска при следующем деплое."
-                )
-            else:
-                await self.send_message(
-                    "❌ <b>Ошибка</b>\n\n"
-                    "Файл .env не найден"
-                )
+            logger.info("Токен Tinkoff API обновлен через Telegram бот и сохранен в БД")
+            
+            await self.send_message(
+                "✅ <b>Токен сохранен в базу данных!</b>\n\n"
+                "⚠️ <b>Для применения изменений необходимо перезапустить контейнер:</b>\n"
+                "<code>docker compose restart</code>\n\n"
+                "После перезапуска система будет использовать новый токен."
+            )
             
         except Exception as e:
             logger.error(f"Ошибка в cmd_set_token: {e}")

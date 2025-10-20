@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from sqlalchemy import update, delete
 
-from src.storage.models import Base, Position, Order, Trade, MultiTakeProfitLevel, SystemEvent
+from src.storage.models import Base, Position, Order, Trade, MultiTakeProfitLevel, SystemEvent, Setting
 from src.utils.logger import get_logger
 
 logger = get_logger("storage.database")
@@ -354,7 +354,58 @@ class Database:
         """
         async with self.get_session() as session:
             stmt = select(SystemEvent).order_by(
-                SystemEvent.timestamp.desc()
+                SystemEvent.created_at.desc()
             ).limit(limit)
             result = await session.execute(stmt)
             return result.scalars().all()
+    
+    # Методы для работы с настройками
+    
+    async def get_setting(self, key: str) -> Optional[str]:
+        """
+        Получение значения настройки по ключу
+        
+        Args:
+            key: Ключ настройки
+            
+        Returns:
+            Optional[str]: Значение настройки или None
+        """
+        async with self.get_session() as session:
+            stmt = select(Setting).where(Setting.key == key)
+            result = await session.execute(stmt)
+            setting = result.scalar_one_or_none()
+            return setting.value if setting else None
+    
+    async def set_setting(self, key: str, value: str, description: Optional[str] = None):
+        """
+        Установка значения настройки
+        
+        Args:
+            key: Ключ настройки
+            value: Значение настройки
+            description: Описание настройки
+        """
+        async with self._lock:
+            async with self.get_session() as session:
+                # Проверяем, существует ли настройка
+                stmt = select(Setting).where(Setting.key == key)
+                result = await session.execute(stmt)
+                setting = result.scalar_one_or_none()
+                
+                if setting:
+                    # Обновляем существующую настройку
+                    setting.value = value
+                    if description:
+                        setting.description = description
+                else:
+                    # Создаем новую настройку
+                    setting = Setting(
+                        key=key,
+                        value=value,
+                        description=description
+                    )
+                    session.add(setting)
+                
+                await session.commit()
+                logger.info(f"Настройка {key} обновлена")

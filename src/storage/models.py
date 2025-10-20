@@ -134,3 +134,18 @@ class SystemEvent(Base):
     
     def __repr__(self):
         return f"<SystemEvent(type={self.event_type}, ticker={self.ticker}, created_at={self.created_at})>"
+
+
+class Setting(Base):
+    """Модель настроек системы"""
+    __tablename__ = "settings"
+    
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), nullable=False, unique=True, index=True)
+    value = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<Setting(key={self.key}, value={self.value[:50]}...)>"
