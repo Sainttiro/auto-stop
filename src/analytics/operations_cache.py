@@ -4,7 +4,8 @@
 
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import and_
+from sqlalchemy import and_, delete
+from sqlalchemy.future import select
 
 from src.storage.database import Database
 from src.storage.models import OperationCache
@@ -165,7 +166,7 @@ class OperationsCache:
         """
         async with self.db.get_session() as session:
             result = await session.execute(
-                self.db.select(OperationCache).where(
+                select(OperationCache).where(
                     and_(
                         OperationCache.account_id == account_id,
                         OperationCache.date >= from_date,
@@ -187,7 +188,7 @@ class OperationsCache:
         """
         async with self.db.get_session() as session:
             result = await session.execute(
-                self.db.select(OperationCache.date)
+                select(OperationCache.date)
                 .where(OperationCache.account_id == account_id)
                 .order_by(OperationCache.date.desc())
                 .limit(1)
@@ -215,7 +216,7 @@ class OperationsCache:
             for op_dict in operations:
                 # Проверка существования
                 existing = await session.execute(
-                    self.db.select(OperationCache).where(
+                    select(OperationCache).where(
                         OperationCache.operation_id == op_dict['operation_id']
                     )
                 )
@@ -285,12 +286,12 @@ class OperationsCache:
         async with self.db.get_session() as session:
             if account_id:
                 await session.execute(
-                    self.db.delete(OperationCache).where(
+                    delete(OperationCache).where(
                         OperationCache.account_id == account_id
                     )
                 )
             else:
-                await session.execute(self.db.delete(OperationCache))
+                await session.execute(delete(OperationCache))
             
             await session.commit()
         
