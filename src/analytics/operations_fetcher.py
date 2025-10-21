@@ -70,7 +70,7 @@ class OperationsFetcher:
                 
                 # Запрос к API
                 response = await self.api_client.services.operations.get_operations_by_cursor(
-                    instrument_id="",  # Пустая строка = все инструменты
+                    account_id=account_id,
                     from_=from_date,
                     to=to_date,
                     cursor=cursor if cursor else "",
