@@ -178,7 +178,8 @@ class TelegramBot:
                     CallbackQueryHandler(self.settings_menu.cancel, pattern='^cancel')
                 ],
                 name="settings_conversation",
-                persistent=False
+                persistent=False,
+                per_message=True
             )
             
             self.application.add_handler(settings_conv)
