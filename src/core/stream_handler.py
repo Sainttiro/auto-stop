@@ -434,7 +434,8 @@ class StreamHandler:
                 logger.debug(f"Расчет многоуровневых SL/TP для {ticker}...")
                 sl_price, tp_levels = await self._calculate_multi_tp_levels(
                     position=position,
-                    instrument_settings=instrument_settings
+                    instrument_settings=instrument_settings,
+                    account_id=account_id
                 )
                 logger.info(f"Рассчитаны уровни: SL={sl_price}, TP уровней={len(tp_levels)}")
                 
@@ -461,7 +462,8 @@ class StreamHandler:
                     instrument_type=instrument_type,
                     avg_price=Decimal(str(position.average_price)),
                     direction=position.direction,
-                    instrument_settings=instrument_settings
+                    instrument_settings=instrument_settings,
+                    account_id=account_id
                 )
                 logger.info(f"Рассчитаны уровни: SL={sl_price}, TP={tp_price}")
                 
@@ -602,7 +604,8 @@ class StreamHandler:
     async def _calculate_multi_tp_levels(
         self,
         position: Position,
-        instrument_settings: Optional[Any] = None
+        instrument_settings: Optional[Any] = None,
+        account_id: Optional[str] = None
     ) -> Tuple[Decimal, List[Tuple[Decimal, float]]]:
         """
         Расчет уровней для многоуровневого тейк-профита
@@ -610,6 +613,7 @@ class StreamHandler:
         Args:
             position: Позиция
             instrument_settings: Настройки инструмента
+            account_id: ID аккаунта для получения настроек из БД
             
         Returns:
             Tuple[Decimal, List[Tuple[Decimal, float]]]: (стоп-лосс, список уровней TP)
@@ -624,7 +628,8 @@ class StreamHandler:
             instrument_type=position.instrument_type,
             avg_price=avg_price,
             direction=position.direction,
-            instrument_settings=instrument_settings
+            instrument_settings=instrument_settings,
+            account_id=account_id
         )
         
         # Определяем уровни TP
