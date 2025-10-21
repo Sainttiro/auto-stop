@@ -5,7 +5,7 @@ Telegram Bot для управления системой Auto-Stop
 import asyncio
 import os
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -309,8 +309,8 @@ class TelegramBot:
                 return
             
             # Определение диапазона дат
-            from_date = datetime(start_year, 1, 1)
-            to_date = datetime.now()
+            from_date = datetime(start_year, 1, 1, tzinfo=timezone.utc)
+            to_date = datetime.now(timezone.utc)
             
             # Получение операций с кэшированием
             operations = await self.operations_cache.get_operations(
@@ -408,8 +408,8 @@ class TelegramBot:
                 return
             
             # Получение операций за текущий год
-            from_date = datetime(datetime.now().year, 1, 1)
-            to_date = datetime.now()
+            from_date = datetime(datetime.now(timezone.utc).year, 1, 1, tzinfo=timezone.utc)
+            to_date = datetime.now(timezone.utc)
             
             operations = await self.operations_cache.get_operations(
                 account_id=active_account.account_id,
@@ -472,7 +472,7 @@ class TelegramBot:
             for event in events:
                 emoji = "ℹ️" if event.event_type == "INFO" else "⚠️" if event.event_type == "STREAM_ERROR" else "❌"
                 text += (
-                    f"{emoji} <code>{event.timestamp.strftime('%H:%M:%S')}</code> "
+                    f"{emoji} <code>{event.created_at.strftime('%H:%M:%S')}</code> "
                     f"{event.event_type}\n"
                     f"  {event.description[:100]}\n\n"
                 )
