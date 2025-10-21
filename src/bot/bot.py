@@ -179,7 +179,8 @@ class TelegramBot:
                 ],
                 name="settings_conversation",
                 persistent=False,
-                per_message=True
+                per_chat=False,
+                per_message=False
             )
             
             self.application.add_handler(settings_conv)
