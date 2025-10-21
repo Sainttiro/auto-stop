@@ -149,17 +149,19 @@ class ReportFormatter:
     
     def format_instrument_report(
         self,
-        ticker: str,
         stats: Dict,
-        period: str
+        ticker: str,
+        period: str,
+        start_year: int
     ) -> str:
         """
         Форматирование отчета по инструменту
         
         Args:
-            ticker: Тикер инструмента
             stats: Статистика
+            ticker: Тикер инструмента
             period: Период
+            start_year: Год начала периода
             
         Returns:
             str: Отформатированный отчет
@@ -168,7 +170,7 @@ class ReportFormatter:
             return f"📊 Нет данных по {ticker}"
         
         report_lines = []
-        report_lines.append(f"📊 СТАТИСТИКА ПО {ticker}\n")
+        report_lines.append(f"📊 СТАТИСТИКА ПО {ticker} ({start_year})\n")
         
         # Общая статистика
         total = stats['total']

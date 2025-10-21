@@ -18,6 +18,7 @@ from src.strategies.futures_sl_tp import FuturesStrategy
 from src.strategies.multi_tp import MultiTakeProfitStrategy
 from src.notifications.telegram import TelegramNotifier
 from src.bot.bot import TelegramBot
+from src.analytics import OperationsFetcher, OperationsCache, StatisticsCalculator, ReportFormatter
 from src.utils.logger import setup_logger, get_logger
 
 logger = get_logger("main")
@@ -51,6 +52,12 @@ class AutoStopSystem:
         self.stream_handler = None
         self.telegram_notifier = None
         self.telegram_bot = None
+        
+        # Компоненты аналитики
+        self.operations_fetcher = None
+        self.operations_cache = None
+        self.statistics_calculator = None
+        self.report_formatter = None
         
         # Стратегии
         self.strategies = {}
@@ -137,6 +144,9 @@ class AutoStopSystem:
             # Инициализация стратегий
             self._initialize_strategies()
             
+            # Инициализация компонентов аналитики
+            self._initialize_analytics()
+            
             # Инициализация Telegram уведомлений
             if self.config.telegram and self.config.telegram.bot_token and self.config.telegram.chat_id:
                 self.telegram_notifier = TelegramNotifier(settings=self.config.telegram)
@@ -148,7 +158,10 @@ class AutoStopSystem:
                     chat_id=self.config.telegram.chat_id,
                     database=self.database,
                     position_manager=self.position_manager,
-                    system_control=self
+                    system_control=self,
+                    operations_cache=self.operations_cache,
+                    statistics_calculator=self.statistics_calculator,
+                    report_formatter=self.report_formatter
                 )
                 await self.telegram_bot.start()
             
@@ -193,6 +206,27 @@ class AutoStopSystem:
             risk_calculator=self.risk_calculator,
             order_executor=self.order_executor
         )
+    
+    def _initialize_analytics(self):
+        """
+        Инициализация компонентов аналитики
+        """
+        # Инициализация fetcher для получения операций из API
+        self.operations_fetcher = OperationsFetcher(self.api_client)
+        
+        # Инициализация кэша операций
+        self.operations_cache = OperationsCache(
+            database=self.database,
+            fetcher=self.operations_fetcher
+        )
+        
+        # Инициализация калькулятора статистики
+        self.statistics_calculator = StatisticsCalculator()
+        
+        # Инициализация форматтера отчетов
+        self.report_formatter = ReportFormatter()
+        
+        logger.info("Компоненты аналитики инициализированы")
     
     async def start(self):
         """
