@@ -128,10 +128,15 @@ class AutoStopSystem:
             # SL/TP выставляются только на новые позиции, открытые после запуска системы
             logger.info("Синхронизация позиций отключена. Система будет отслеживать только новые позиции.")
             
+            # Инициализация менеджера настроек
+            from src.config.settings_manager import SettingsManager
+            self.settings_manager = SettingsManager(self.database)
+            
             # Инициализация калькулятора рисков
             self.risk_calculator = RiskCalculator(
                 default_settings=self.config.default_settings,
-                instrument_cache=self.instrument_cache
+                instrument_cache=self.instrument_cache,
+                settings_manager=self.settings_manager
             )
             
             # Инициализация исполнителя ордеров

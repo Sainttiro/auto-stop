@@ -2,6 +2,7 @@ from typing import Dict, Tuple, Optional, List
 from decimal import Decimal
 
 from src.config.settings import InstrumentSettings, DefaultSettings
+from src.config.settings_manager import SettingsManager
 from src.api.instrument_info import InstrumentInfoCache
 from src.utils.converters import round_to_step
 from src.utils.logger import get_logger
@@ -14,16 +15,23 @@ class RiskCalculator:
     Расчет уровней стоп-лосса и тейк-профита
     """
     
-    def __init__(self, default_settings: DefaultSettings, instrument_cache: InstrumentInfoCache):
+    def __init__(
+        self, 
+        default_settings: DefaultSettings, 
+        instrument_cache: InstrumentInfoCache,
+        settings_manager: Optional[SettingsManager] = None
+    ):
         """
         Инициализация калькулятора рисков
         
         Args:
-            default_settings: Настройки по умолчанию
+            default_settings: Настройки по умолчанию (fallback)
             instrument_cache: Кэш информации об инструментах
+            settings_manager: Менеджер настроек из БД (опционально)
         """
         self.default_settings = default_settings
         self.instrument_cache = instrument_cache
+        self.settings_manager = settings_manager
     
     async def calculate_levels(
         self,
@@ -32,7 +40,8 @@ class RiskCalculator:
         instrument_type: str,
         avg_price: Decimal,
         direction: str,
-        instrument_settings: Optional[InstrumentSettings] = None
+        instrument_settings: Optional[InstrumentSettings] = None,
+        account_id: Optional[str] = None
     ) -> Tuple[Decimal, Decimal]:
         """
         Расчет уровней стоп-лосса и тейк-профита
@@ -43,11 +52,37 @@ class RiskCalculator:
             instrument_type: Тип инструмента ("stock" или "futures")
             avg_price: Средняя цена позиции
             direction: Направление позиции ("LONG" или "SHORT")
-            instrument_settings: Индивидуальные настройки инструмента
+            instrument_settings: Индивидуальные настройки инструмента (YAML, deprecated)
+            account_id: ID аккаунта для получения настроек из БД
             
         Returns:
             Tuple[Decimal, Decimal]: (стоп-лосс, тейк-профит)
         """
+        # Приоритет: БД > YAML > defaults
+        effective_settings = None
+        
+        # Попытка получить настройки из БД
+        if self.settings_manager and account_id:
+            try:
+                db_settings = await self.settings_manager.get_effective_settings(account_id, ticker)
+                if db_settings:
+                    # Конвертируем в формат InstrumentSettings для совместимости
+                    effective_settings = type('Settings', (), {
+                        'stop_loss_pct': db_settings.get('stop_loss_pct'),
+                        'take_profit_pct': db_settings.get('take_profit_pct'),
+                        'stop_loss_steps': None,
+                        'take_profit_steps': None
+                    })()
+                    logger.debug(f"Используются настройки из БД для {ticker}: SL={db_settings.get('stop_loss_pct')}%, TP={db_settings.get('take_profit_pct')}%")
+            except Exception as e:
+                logger.warning(f"Ошибка при получении настроек из БД для {ticker}: {e}, используем fallback")
+        
+        # Fallback на YAML настройки
+        if effective_settings is None:
+            effective_settings = instrument_settings
+            if effective_settings:
+                logger.debug(f"Используются настройки из YAML для {ticker}")
+        
         # Получаем шаг цены инструмента
         min_price_increment, step_price = await self.instrument_cache.get_price_step(figi)
         
@@ -57,7 +92,7 @@ class RiskCalculator:
                 avg_price=avg_price,
                 direction=direction,
                 min_price_increment=min_price_increment,
-                instrument_settings=instrument_settings
+                instrument_settings=effective_settings
             )
         elif instrument_type == "futures":
             return await self._calculate_futures_levels(
@@ -66,7 +101,7 @@ class RiskCalculator:
                 direction=direction,
                 min_price_increment=min_price_increment,
                 step_price=step_price,
-                instrument_settings=instrument_settings
+                instrument_settings=effective_settings
             )
         else:
             raise ValueError(f"Неизвестный тип инструмента: {instrument_type}")

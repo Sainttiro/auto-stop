@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, Enum
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, Enum, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -193,3 +193,56 @@ class OperationCache(Base):
     
     def __repr__(self):
         return f"<OperationCache(operation_id={self.operation_id}, ticker={self.ticker}, type={self.type}, date={self.date})>"
+
+
+class GlobalSettings(Base):
+    """Глобальные настройки торговли (для всех инструментов по умолчанию)"""
+    __tablename__ = "global_settings"
+    
+    id = Column(Integer, primary_key=True)
+    account_id = Column(String(50), nullable=False, unique=True, index=True)
+    
+    # Базовые настройки SL/TP
+    stop_loss_pct = Column(Float, default=0.4)  # Процент стоп-лосса
+    take_profit_pct = Column(Float, default=1.0)  # Процент тейк-профита
+    
+    # Multi-TP настройки
+    multi_tp_enabled = Column(Boolean, default=False)  # Включен ли Multi-TP
+    multi_tp_levels = Column(Text, nullable=True)  # JSON с уровнями Multi-TP
+    # Формат: [{"level_pct": 1.0, "volume_pct": 25, "sl_after_pct": -0.4}, ...]
+    multi_tp_sl_strategy = Column(String(20), default="fixed")  # "fixed" или "custom"
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<GlobalSettings(account_id={self.account_id}, sl={self.stop_loss_pct}%, tp={self.take_profit_pct}%, multi_tp={self.multi_tp_enabled})>"
+
+
+class InstrumentSettings(Base):
+    """Индивидуальные настройки для конкретного инструмента (переопределяют глобальные)"""
+    __tablename__ = "instrument_settings"
+    
+    id = Column(Integer, primary_key=True)
+    account_id = Column(String(50), nullable=False, index=True)
+    ticker = Column(String(50), nullable=False, index=True)
+    figi = Column(String(50), nullable=True, index=True)
+    
+    # Базовые настройки SL/TP (NULL = использовать глобальные)
+    stop_loss_pct = Column(Float, nullable=True)
+    take_profit_pct = Column(Float, nullable=True)
+    
+    # Multi-TP настройки (NULL = использовать глобальные)
+    multi_tp_enabled = Column(Boolean, nullable=True)  # NULL, True, False
+    multi_tp_levels = Column(Text, nullable=True)  # JSON с уровнями
+    multi_tp_sl_strategy = Column(String(20), nullable=True)  # NULL, "fixed", "custom"
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('account_id', 'ticker', name='uix_account_ticker'),
+    )
+    
+    def __repr__(self):
+        return f"<InstrumentSettings(ticker={self.ticker}, account_id={self.account_id})>"

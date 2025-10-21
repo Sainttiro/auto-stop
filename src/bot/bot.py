@@ -14,6 +14,8 @@ from src.core.position_manager import PositionManager
 from src.analytics.operations_cache import OperationsCache
 from src.analytics.statistics import StatisticsCalculator
 from src.analytics.reports import ReportFormatter
+from src.config.settings_manager import SettingsManager
+from src.bot.settings_menu import SettingsMenu
 from src.utils.logger import get_logger
 
 logger = get_logger("bot")
@@ -61,6 +63,14 @@ class TelegramBot:
         self.bot: Optional[Bot] = None
         self._running = False
         self.start_time = datetime.utcnow()
+        
+        # Инициализация меню настроек
+        self.settings_manager = SettingsManager(database)
+        self.settings_menu = SettingsMenu(
+            settings_manager=self.settings_manager,
+            database=database,
+            chat_id=chat_id
+        )
     
     async def start(self):
         """Запуск бота"""
@@ -90,6 +100,88 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("switch_account", self.cmd_switch_account))
             self.application.add_handler(CommandHandler("current_account", self.cmd_current_account))
             self.application.add_handler(CommandHandler("remove_account", self.cmd_remove_account))
+            
+            # ConversationHandler для меню настроек
+            from telegram.ext import ConversationHandler, CallbackQueryHandler, MessageHandler, filters
+            from src.bot.settings_menu import (
+                MAIN_MENU, GLOBAL_SETTINGS, INSTRUMENT_LIST, INSTRUMENT_SETTINGS,
+                EDIT_SL, EDIT_TP, MULTI_TP_MENU, ADD_LEVEL, ADD_LEVEL_PRICE, ADD_LEVEL_VOLUME,
+                EDIT_LEVEL, EDIT_LEVEL_PRICE, EDIT_LEVEL_VOLUME, DELETE_LEVEL,
+                SL_STRATEGY, ADD_INSTRUMENT, EDIT_INSTRUMENT_SL, EDIT_INSTRUMENT_TP
+            )
+            
+            settings_conv = ConversationHandler(
+                entry_points=[
+                    CommandHandler('settings', self.settings_menu.show_main_menu)
+                ],
+                states={
+                    MAIN_MENU: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    GLOBAL_SETTINGS: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_SL: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_global_sl),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_TP: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_global_tp),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    INSTRUMENT_LIST: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    ADD_INSTRUMENT: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.add_instrument_save),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    INSTRUMENT_SETTINGS: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_INSTRUMENT_SL: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_instrument_sl),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_INSTRUMENT_TP: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_instrument_tp),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    MULTI_TP_MENU: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    ADD_LEVEL_PRICE: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.add_level_price),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    ADD_LEVEL_VOLUME: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.add_level_volume),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_LEVEL: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_LEVEL_PRICE: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.edit_level_price_save),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_LEVEL_VOLUME: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.edit_level_volume_save),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    DELETE_LEVEL: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                },
+                fallbacks=[
+                    CommandHandler('cancel', self.settings_menu.cancel),
+                    CallbackQueryHandler(self.settings_menu.cancel, pattern='^cancel')
+                ],
+                name="settings_conversation",
+                persistent=False
+            )
+            
+            self.application.add_handler(settings_conv)
             
             # Запуск бота
             await self.application.initialize()

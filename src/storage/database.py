@@ -218,6 +218,25 @@ class Database:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
     
+    async def get_position_by_ticker(self, account_id: str, ticker: str) -> Optional[Position]:
+        """
+        Получение позиции по тикеру и ID счета
+        
+        Args:
+            account_id: ID счета
+            ticker: Тикер инструмента
+            
+        Returns:
+            Optional[Position]: Найденная позиция или None
+        """
+        async with self.get_session() as session:
+            stmt = select(Position).where(
+                Position.account_id == account_id,
+                Position.ticker == ticker
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+    
     async def get_active_orders_by_position(self, position_id: int) -> List[Order]:
         """
         Получение активных ордеров для позиции
