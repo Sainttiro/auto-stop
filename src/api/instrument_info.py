@@ -132,6 +132,25 @@ class InstrumentInfoCache:
             return figi  # Возвращаем FIGI, если не удалось получить тикер
         return instrument.ticker
     
+    async def get_lot_size(self, figi: str) -> int:
+        """
+        Получение размера лота для инструмента
+        
+        Args:
+            figi: FIGI инструмента
+            
+        Returns:
+            int: Размер лота (количество акций в одном лоте)
+        """
+        instrument = await self.get_instrument_by_figi(figi)
+        if not instrument:
+            logger.warning(f"Не удалось получить информацию об инструменте {figi}, используем размер лота 1")
+            return 1
+        
+        lot_size = instrument.lot
+        logger.debug(f"Размер лота для {instrument.ticker}: {lot_size}")
+        return lot_size
+    
     def clear_cache(self):
         """
         Очистка кэша

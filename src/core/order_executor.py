@@ -15,6 +15,7 @@ from tinkoff.invest import (
 )
 
 from src.api.client import TinkoffAPIClient
+from src.api.instrument_info import InstrumentInfoCache
 from src.storage.database import Database
 from src.storage.models import Order, Position
 from src.utils.converters import decimal_to_quotation
@@ -28,16 +29,18 @@ class OrderExecutor:
     Выставление и управление ордерами
     """
     
-    def __init__(self, api_client: TinkoffAPIClient, database: Database):
+    def __init__(self, api_client: TinkoffAPIClient, database: Database, instrument_cache: InstrumentInfoCache):
         """
         Инициализация исполнителя ордеров
         
         Args:
             api_client: Клиент API Tinkoff
             database: Объект для работы с базой данных
+            instrument_cache: Кэш информации об инструментах
         """
         self.api_client = api_client
         self.db = database
+        self.instrument_cache = instrument_cache
         self._lock = asyncio.Lock()
     
     async def place_stop_loss_order(
@@ -64,10 +67,30 @@ class OrderExecutor:
         stop_order_type = StopOrderType.STOP_ORDER_TYPE_STOP_LIMIT
         
         try:
+            # КРИТИЧНО: API принимает quantity в ЛОТАХ, а не в акциях!
+            # Получаем размер лота для инструмента
+            lot_size = await self.instrument_cache.get_lot_size(position.figi)
+            
+            # Конвертируем количество из акций в лоты
+            quantity_in_lots = position.quantity // lot_size
+            
+            # Проверка: количество должно быть > 0
+            if quantity_in_lots <= 0:
+                logger.error(
+                    f"Ошибка: количество в лотах = {quantity_in_lots} для {position.ticker}. "
+                    f"Позиция: {position.quantity} акций, размер лота: {lot_size}"
+                )
+                return None
+            
+            logger.info(
+                f"Конвертация количества для {position.ticker}: "
+                f"{position.quantity} акций → {quantity_in_lots} лотов (размер лота: {lot_size})"
+            )
+            
             # Выставляем ордер через API (передаем параметры напрямую)
             response = await self.api_client.services.stop_orders.post_stop_order(
                 figi=position.figi,
-                quantity=position.quantity,
+                quantity=quantity_in_lots,  # ВАЖНО: передаем в лотах!
                 price=decimal_to_quotation(stop_price),
                 stop_price=decimal_to_quotation(stop_price),
                 direction=direction,
@@ -149,10 +172,30 @@ class OrderExecutor:
             if position.direction == "LONG" else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
         
         try:
+            # КРИТИЧНО: API принимает quantity в ЛОТАХ, а не в акциях!
+            # Получаем размер лота для инструмента
+            lot_size = await self.instrument_cache.get_lot_size(position.figi)
+            
+            # Конвертируем количество из акций в лоты
+            quantity_in_lots = position.quantity // lot_size
+            
+            # Проверка: количество должно быть > 0
+            if quantity_in_lots <= 0:
+                logger.error(
+                    f"Ошибка: количество в лотах = {quantity_in_lots} для {position.ticker}. "
+                    f"Позиция: {position.quantity} акций, размер лота: {lot_size}"
+                )
+                return None
+            
+            logger.info(
+                f"Конвертация количества для {position.ticker}: "
+                f"{position.quantity} акций → {quantity_in_lots} лотов (размер лота: {lot_size})"
+            )
+            
             # Выставляем ордер через API (передаем параметры напрямую)
             response = await self.api_client.services.stop_orders.post_stop_order(
                 figi=position.figi,
-                quantity=position.quantity,
+                quantity=quantity_in_lots,  # ВАЖНО: передаем в лотах!
                 price=decimal_to_quotation(take_price),
                 stop_price=decimal_to_quotation(take_price),
                 direction=direction,
@@ -227,7 +270,7 @@ class OrderExecutor:
         Args:
             position: Позиция
             price: Цена уровня
-            quantity: Количество для закрытия на этом уровне
+            quantity: Количество для закрытия на этом уровне (в акциях)
             level_number: Номер уровня
             
         Returns:
@@ -238,10 +281,30 @@ class OrderExecutor:
             if position.direction == "LONG" else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
         
         try:
+            # КРИТИЧНО: API принимает quantity в ЛОТАХ, а не в акциях!
+            # Получаем размер лота для инструмента
+            lot_size = await self.instrument_cache.get_lot_size(position.figi)
+            
+            # Конвертируем количество из акций в лоты
+            quantity_in_lots = quantity // lot_size
+            
+            # Проверка: количество должно быть > 0
+            if quantity_in_lots <= 0:
+                logger.error(
+                    f"Ошибка: количество в лотах = {quantity_in_lots} для {position.ticker} (уровень {level_number}). "
+                    f"Количество: {quantity} акций, размер лота: {lot_size}"
+                )
+                return None
+            
+            logger.info(
+                f"Конвертация количества для {position.ticker} (уровень {level_number}): "
+                f"{quantity} акций → {quantity_in_lots} лотов (размер лота: {lot_size})"
+            )
+            
             # Выставляем ордер через API (передаем параметры напрямую)
             response = await self.api_client.services.stop_orders.post_stop_order(
                 figi=position.figi,
-                quantity=quantity,
+                quantity=quantity_in_lots,  # ВАЖНО: передаем в лотах!
                 price=decimal_to_quotation(price),
                 stop_price=decimal_to_quotation(price),
                 direction=direction,

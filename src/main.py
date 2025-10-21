@@ -130,7 +130,8 @@ class AutoStopSystem:
             # Инициализация исполнителя ордеров
             self.order_executor = OrderExecutor(
                 api_client=self.api_client,
-                database=self.database
+                database=self.database,
+                instrument_cache=self.instrument_cache
             )
             
             # Инициализация стратегий
@@ -280,7 +281,8 @@ class AutoStopSystem:
             
             self.order_executor = OrderExecutor(
                 api_client=self.api_client,
-                database=self.database
+                database=self.database,
+                instrument_cache=self.instrument_cache
             )
             
             # Переинициализировать стратегии с новым executor
