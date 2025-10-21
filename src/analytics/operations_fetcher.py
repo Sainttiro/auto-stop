@@ -4,7 +4,7 @@
 
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from tinkoff.invest import OperationType, OperationState
+from tinkoff.invest import OperationType, OperationState, GetOperationsByCursorRequest
 
 from src.api.client import TinkoffAPIClient
 from src.utils.logger import get_logger
@@ -68,8 +68,8 @@ class OperationsFetcher:
                 page += 1
                 logger.debug(f"Запрос страницы {page}, cursor={cursor}")
                 
-                # Запрос к API
-                response = await self.api_client.services.operations.get_operations_by_cursor(
+                # Создание запроса
+                request = GetOperationsByCursorRequest(
                     account_id=account_id,
                     from_=from_date,
                     to=to_date,
@@ -80,6 +80,11 @@ class OperationsFetcher:
                     without_commissions=False,
                     without_trades=False,
                     without_overnights=True
+                )
+                
+                # Запрос к API
+                response = await self.api_client.services.operations.get_operations_by_cursor(
+                    request=request
                 )
                 
                 # Обработка операций
