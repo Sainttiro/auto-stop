@@ -167,3 +167,29 @@ class Account(Base):
     
     def __repr__(self):
         return f"<Account(name={self.name}, account_id={self.account_id}, active={self.is_active})>"
+
+
+class OperationCache(Base):
+    """Модель кэша операций из API"""
+    __tablename__ = "operations_cache"
+    
+    id = Column(Integer, primary_key=True)
+    operation_id = Column(String(100), nullable=False, unique=True, index=True)
+    account_id = Column(String(50), nullable=False, index=True)
+    date = Column(DateTime, nullable=False, index=True)
+    type = Column(String(50), nullable=False)  # BUY, SELL, DIVIDEND, etc.
+    state = Column(String(20), nullable=False)  # EXECUTED, CANCELED, PROGRESS
+    instrument_uid = Column(String(50), nullable=True, index=True)
+    ticker = Column(String(50), nullable=True, index=True)
+    figi = Column(String(50), nullable=True, index=True)
+    instrument_type = Column(String(20), nullable=True)  # stock, bond, futures, etc.
+    quantity = Column(Integer, nullable=True)  # Количество в единицах
+    price = Column(Float, nullable=True)  # Цена за 1 инструмент
+    payment = Column(Float, nullable=True)  # Сумма операции
+    commission = Column(Float, nullable=True)  # Комиссия
+    yield_value = Column(Float, nullable=True)  # Доходность
+    currency = Column(String(10), nullable=True)  # Валюта
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<OperationCache(operation_id={self.operation_id}, ticker={self.ticker}, type={self.type}, date={self.date})>"
