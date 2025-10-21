@@ -6,7 +6,7 @@ import asyncio
 import os
 from typing import Optional
 from datetime import datetime, timedelta, timezone
-from telegram import Update, Bot
+from telegram import Update, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from src.storage.database import Database
@@ -189,6 +189,21 @@ class TelegramBot:
             await self.application.initialize()
             await self.application.start()
             await self.application.updater.start_polling()
+            
+            # Установка команд для меню
+            commands = [
+                BotCommand("start", "🏠 Главное меню"),
+                BotCommand("status", "📊 Статус системы"),
+                BotCommand("positions", "📈 Текущие позиции"),
+                BotCommand("settings", "⚙️ Настройки SL/TP"),
+                BotCommand("stats", "📊 Статистика торговли"),
+                BotCommand("stats_instrument", "📈 Статистика по инструменту"),
+                BotCommand("accounts", "👥 Управление счетами"),
+                BotCommand("logs", "📋 Последние логи"),
+                BotCommand("help", "❓ Справка"),
+            ]
+            await self.bot.set_my_commands(commands)
+            logger.info("Команды меню установлены")
             
             self._running = True
             logger.info("Telegram Bot запущен")
