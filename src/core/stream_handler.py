@@ -305,7 +305,7 @@ class StreamHandler:
         total_quantity = 0
         for trade in order_trades.trades:
             # Создаем уникальный ID для каждой части сделки
-            trade_time = trade.date_time.ToDatetime() if hasattr(trade, 'date_time') else datetime.utcnow()
+            trade_time = trade.date_time if hasattr(trade, 'date_time') else datetime.utcnow()
             trade_unique_id = f"{order_id}_{trade_time.timestamp()}"
             
             # Проверяем, не обрабатывали ли мы уже эту конкретную часть сделки
