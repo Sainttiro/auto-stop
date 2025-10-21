@@ -293,25 +293,37 @@ class StreamHandler:
         direction = "BUY" if order_trades.direction == OrderDirection.ORDER_DIRECTION_BUY else "SELL"
         figi = order_trades.figi
         
-        # Создаем уникальный ID сделки для проверки дублирования
-        # Используем комбинацию order_id + figi + direction + timestamp первой сделки
+        # Обрабатываем все сделки в order_trades
+        # При частичном исполнении один order_id может приходить несколько раз
+        # с разными частями исполнения
         if not order_trades.trades:
             logger.warning(f"Ордер {order_id} не содержит сделок")
             return
         
-        first_trade = order_trades.trades[0]
-        # Используем order_id как уникальный идентификатор
-        # Если один ордер приходит дважды - это дубликат
-        trade_unique_id = order_id
-        
-        # Проверяем, не обрабатывали ли мы уже эту сделку
-        async with self._lock:
-            if trade_unique_id in self._processed_trades:
-                logger.warning(f"Сделка {order_id} уже была обработана ранее, пропускаем дубликат")
-                return
+        # Для каждой сделки создаем уникальный ID на основе времени исполнения
+        # Это позволяет обрабатывать частичное исполнение одного ордера
+        total_quantity = 0
+        for trade in order_trades.trades:
+            # Создаем уникальный ID для каждой части сделки
+            trade_time = trade.date_time.ToDatetime() if hasattr(trade, 'date_time') else datetime.utcnow()
+            trade_unique_id = f"{order_id}_{trade_time.timestamp()}"
             
-            # Добавляем в множество обработанных (НЕ удаляем потом!)
-            self._processed_trades.add(trade_unique_id)
+            # Проверяем, не обрабатывали ли мы уже эту конкретную часть сделки
+            async with self._lock:
+                if trade_unique_id in self._processed_trades:
+                    logger.debug(f"Часть сделки {trade_unique_id} уже обработана, пропускаем")
+                    continue
+                
+                # Добавляем в множество обработанных
+                self._processed_trades.add(trade_unique_id)
+            
+            # Суммируем количество из всех частей
+            total_quantity += trade.quantity
+        
+        # Если все части уже были обработаны, выходим
+        if total_quantity == 0:
+            logger.debug(f"Все части ордера {order_id} уже обработаны")
+            return
         
         try:
             logger.debug(f"Обработка сделки: order_id={order_id}, figi={figi}, direction={direction}")
@@ -327,15 +339,16 @@ class StreamHandler:
             
             logger.debug(f"Инструмент определен: ticker={ticker}, type={instrument_type}")
             
-            # Получаем цену и количество из первой сделки
-            if not order_trades.trades:
-                logger.warning(f"Ордер {order_id} не содержит сделок")
-                return
+            # Рассчитываем среднюю цену и общее количество из всех частей
+            total_amount = Decimal('0')
+            for trade in order_trades.trades:
+                trade_price = quotation_to_decimal(trade.price)
+                trade_quantity = trade.quantity
+                total_amount += trade_price * Decimal(trade_quantity)
             
-            # Берем данные из первой сделки (обычно она одна)
-            first_trade = order_trades.trades[0]
-            price = quotation_to_decimal(first_trade.price)
-            quantity = first_trade.quantity
+            # Средневзвешенная цена
+            price = total_amount / Decimal(total_quantity) if total_quantity > 0 else Decimal('0')
+            quantity = total_quantity
             
             logger.info(
                 f"Получено исполнение сделки: {ticker} ({figi}), "
@@ -472,9 +485,10 @@ class StreamHandler:
                 details={"error": str(e), "order_id": order_id, "traceback": str(e.__traceback__)}
             )
             
-            # При ошибке удаляем из обработанных, чтобы можно было повторить
-            async with self._lock:
-                self._processed_trades.discard(trade_unique_id)
+            # При ошибке НЕ удаляем из обработанных, так как у нас может быть
+            # несколько trade_unique_id для одного ордера (частичное исполнение)
+            # Повторная обработка произойдет при следующем сообщении от API
+            pass
     
     async def _handle_position_change(self, position_response: PositionsStreamResponse, account_id: str):
         """
