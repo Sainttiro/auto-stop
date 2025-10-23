@@ -96,6 +96,21 @@ LOG_LEVEL=INFO
 
 Сохраните файл (Ctrl+O, Enter, Ctrl+X).
 
+### 5.1. Проверка docker-compose.yml
+
+Убедитесь, что в файле `docker-compose.yml` присутствует параметр `pull_policy: always`:
+
+```yaml
+services:
+  auto-stop:
+    image: ghcr.io/${GITHUB_REPOSITORY:-yourusername/auto-stop}:${VERSION:-latest}
+    container_name: auto-stop
+    restart: unless-stopped
+    pull_policy: always  # Важно! Всегда проверять наличие новой версии образа
+```
+
+Этот параметр гарантирует, что при перезапуске Docker будет проверять наличие новой версии образа, а не использовать локальный кэш. Это особенно важно после обновлений кода или при перезагрузке сервера.
+
 ### 6. Создание необходимых директорий
 
 ```bash
