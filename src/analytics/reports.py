@@ -2,9 +2,10 @@
 Модуль для форматирования отчетов по статистике
 """
 
-from typing import Dict
+from typing import Dict, List
 from datetime import datetime
 
+from src.storage.models import OperationCache
 from src.utils.logger import get_logger
 
 logger = get_logger("analytics.reports")
@@ -192,3 +193,152 @@ class ReportFormatter:
         )
         
         return '\n'.join(report_lines)
+    
+    def format_detailed_report(
+        self,
+        stats: Dict,
+        operations: List[OperationCache],
+        period: str,
+        start_year: int
+    ) -> str:
+        """
+        Форматирование детального отчета с информацией по каждой сделке
+        
+        Args:
+            stats: Статистика
+            operations: Список операций
+            period: Период (month, week, day)
+            start_year: Год начала периода
+            
+        Returns:
+            str: Отформатированный отчет
+        """
+        if not stats or not stats.get('total'):
+            return "📊 Нет данных для отображения"
+        
+        report_lines = []
+        
+        # Заголовок
+        today = datetime.now().strftime('%d.%m.%Y')
+        report_lines.append(f"📊 СТАТИСТИКА ЗА {today}\n")
+        
+        # Общая статистика
+        total = stats['total']
+        profit = total['profit']
+        profit_sign = '+' if profit >= 0 else ''
+        profit_emoji = '📈' if profit >= 0 else '📉'
+        
+        report_lines.append("📈 Общие показатели:")
+        report_lines.append(f"├─ Сделок: {total['total_trades']} "
+                           f"({total['buys']} покупок, {total['sells']} продаж)")
+        report_lines.append(f"├─ Объем: {total['volume']:,.0f}₽")
+        report_lines.append(f"├─ Комиссии: {total['commissions']:,.0f}₽")
+        report_lines.append(
+            f"├─ Прибыль: {profit_sign}{profit:,.0f}₽ ({profit_sign}{total['roi']:.1f}%)"
+        )
+        report_lines.append(
+            f"└─ Винрейт: {total['winrate']:.1f}% "
+            f"({total['profitable_trades']}/{total['sells']})"
+        )
+        
+        # Детали по сделкам
+        report_lines.append("\n📋 Детали по сделкам:")
+        
+        # Разделяем операции на покупки и продажи
+        buys = {op.ticker: op for op in operations if 'BUY' in op.type and op.ticker}
+        sells = [op for op in operations if 'SELL' in op.type and op.ticker]
+        
+        # Прибыльные сделки
+        profitable_sells = [op for op in sells if op.yield_value and op.yield_value > 0]
+        if profitable_sells:
+            report_lines.append("\n✅ Прибыльные:")
+            for op in profitable_sells:
+                price_info = self._get_price_info(op, buys.get(op.ticker))
+                report_lines.append(
+                    f"• {op.ticker}: +{op.yield_value:,.0f}₽ {price_info}"
+                )
+        else:
+            report_lines.append("\n✅ Прибыльные:\n(пусто)")
+        
+        # Убыточные сделки
+        losing_sells = [op for op in sells if op.yield_value and op.yield_value <= 0]
+        if losing_sells:
+            report_lines.append("\n❌ Убыточные:")
+            for op in losing_sells:
+                price_info = self._get_price_info(op, buys.get(op.ticker))
+                report_lines.append(
+                    f"• {op.ticker}: {op.yield_value:,.0f}₽ {price_info}"
+                )
+        else:
+            report_lines.append("\n❌ Убыточные:\n(пусто)")
+        
+        # Открытые позиции
+        open_positions = self._get_open_positions(operations)
+        if open_positions:
+            report_lines.append("\n⏳ Открытые позиции:")
+            for ticker, position in open_positions.items():
+                report_lines.append(
+                    f"• {ticker}: {position['quantity']} лотов @ {position['price']:,.2f}"
+                )
+        
+        return '\n'.join(report_lines)
+    
+    def _get_price_info(self, sell_op: OperationCache, buy_op: OperationCache) -> str:
+        """
+        Получение информации о ценах входа/выхода
+        
+        Args:
+            sell_op: Операция продажи
+            buy_op: Операция покупки
+            
+        Returns:
+            str: Строка с информацией о ценах
+        """
+        if not sell_op.price:
+            return ""
+        
+        sell_price = sell_op.price
+        
+        if buy_op and buy_op.price:
+            buy_price = buy_op.price
+            return f"({buy_price:.2f} → {sell_price:.2f})"
+        
+        return f"(цена выхода: {sell_price:.2f})"
+    
+    def _get_open_positions(self, operations: List[OperationCache]) -> Dict:
+        """
+        Получение открытых позиций из операций
+        
+        Args:
+            operations: Список операций
+            
+        Returns:
+            Dict: Словарь открытых позиций
+        """
+        positions = {}
+        
+        for op in operations:
+            if not op.ticker or not op.quantity:
+                continue
+            
+            ticker = op.ticker
+            quantity = op.quantity
+            
+            if ticker not in positions:
+                positions[ticker] = {'quantity': 0, 'total_cost': 0, 'price': 0}
+            
+            if 'BUY' in op.type:
+                positions[ticker]['quantity'] += quantity
+                if op.price and op.payment:
+                    positions[ticker]['total_cost'] += abs(op.payment)
+            elif 'SELL' in op.type:
+                positions[ticker]['quantity'] -= quantity
+        
+        # Удаляем закрытые позиции и рассчитываем среднюю цену
+        open_positions = {}
+        for ticker, pos in positions.items():
+            if pos['quantity'] > 0:
+                pos['price'] = pos['total_cost'] / pos['quantity'] if pos['quantity'] > 0 else 0
+                open_positions[ticker] = pos
+        
+        return open_positions

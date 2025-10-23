@@ -90,6 +90,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("status", self.cmd_status))
             self.application.add_handler(CommandHandler("positions", self.cmd_positions))
             self.application.add_handler(CommandHandler("stats", self.cmd_stats))
+            self.application.add_handler(CommandHandler("stats_detailed", self.cmd_stats_detailed))
             self.application.add_handler(CommandHandler("stats_instrument", self.cmd_stats_instrument))
             self.application.add_handler(CommandHandler("logs", self.cmd_logs))
             self.application.add_handler(CommandHandler("set_token", self.cmd_set_token))
@@ -197,6 +198,7 @@ class TelegramBot:
                 BotCommand("positions", "📈 Текущие позиции"),
                 BotCommand("settings", "⚙️ Настройки SL/TP"),
                 BotCommand("stats", "📊 Статистика торговли"),
+                BotCommand("stats_detailed", "📋 Детальная статистика сделок"),
                 BotCommand("stats_instrument", "📈 Статистика по инструменту"),
                 BotCommand("accounts", "👥 Управление счетами"),
                 BotCommand("logs", "📋 Последние логи"),
@@ -280,6 +282,10 @@ class TelegramBot:
             "  • /stats - месячная за текущий год\n"
             "  • /stats week - недельная за текущий год\n"
             "  • /stats month 2024 - месячная за 2024\n\n"
+            "/stats_detailed - Детальная статистика сделок за сегодня\n"
+            "  • Показывает прибыльные/убыточные сделки\n"
+            "  • Цены входа/выхода\n"
+            "  • Открытые позиции\n\n"
             "/stats_instrument {ticker} [период] - Статистика по инструменту\n"
             "  Примеры:\n"
             "  • /stats_instrument SBER\n"
@@ -355,6 +361,82 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"Ошибка в cmd_positions: {e}")
+            await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    
+    async def cmd_stats_detailed(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /stats_detailed - детальная статистика сделок за сегодня"""
+        try:
+            # Проверка авторизации
+            if str(update.effective_chat.id) != self.chat_id:
+                await update.message.reply_text("❌ Доступ запрещен")
+                return
+            
+            # Проверка доступности компонентов аналитики
+            if not self.operations_cache or not self.statistics_calculator or not self.report_formatter:
+                await update.message.reply_text(
+                    "❌ <b>Модуль статистики недоступен</b>\n\n"
+                    "Компоненты аналитики не инициализированы.",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Отправка уведомления о начале обработки
+            processing_msg = await update.message.reply_text(
+                "⏳ Загружаю операции и формирую детальный отчет...",
+                parse_mode='HTML'
+            )
+            
+            # Получение активного аккаунта
+            active_account = await self.db.get_active_account()
+            if not active_account:
+                await processing_msg.edit_text(
+                    "❌ Активный аккаунт не найден",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Определение диапазона дат (только сегодня)
+            today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            from_date = today
+            to_date = datetime.now(timezone.utc)
+            
+            # Получение операций с кэшированием
+            operations = await self.operations_cache.get_operations(
+                account_id=active_account.account_id,
+                from_date=from_date,
+                to_date=to_date
+            )
+            
+            if not operations:
+                await processing_msg.edit_text(
+                    "📭 <b>Нет операций за сегодня</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Расчет статистики
+            stats = self.statistics_calculator.calculate_statistics(operations, period="day")
+            
+            # Форматирование детального отчета
+            report = self.report_formatter.format_detailed_report(
+                stats, 
+                operations=operations,
+                period="day",
+                start_year=datetime.now().year
+            )
+            
+            # Отправка отчета (может быть длинным, разбиваем если нужно)
+            if len(report) > 4096:
+                # Telegram ограничение на длину сообщения
+                parts = [report[i:i+4096] for i in range(0, len(report), 4096)]
+                await processing_msg.delete()
+                for part in parts:
+                    await update.message.reply_text(part, parse_mode='HTML')
+            else:
+                await processing_msg.edit_text(report, parse_mode='HTML')
+            
+        except Exception as e:
+            logger.error(f"Ошибка в cmd_stats_detailed: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
     
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
