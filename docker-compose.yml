@@ -3,6 +3,7 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY:-yourusername/auto-stop}:${VERSION:-latest}
     container_name: auto-stop
     restart: unless-stopped
+    pull_policy: always # Всегда проверять наличие новой версии образа при запуске
 
     environment:
       # API Configuration
