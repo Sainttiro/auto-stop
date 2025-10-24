@@ -46,14 +46,16 @@ class OrderExecutor:
     async def place_stop_loss_order(
         self,
         position: Position,
-        stop_price: Decimal
+        stop_price: Decimal,
+        sl_pct: Optional[Decimal] = None
     ) -> Optional[Order]:
         """
         Выставление стоп-лосс ордера
         
         Args:
             position: Позиция
-            stop_price: Цена стоп-лосса
+            stop_price: Цена стоп-лосса (цена активации)
+            sl_pct: Размер стопа в процентах (для расчета цены исполнения)
             
         Returns:
             Optional[Order]: Созданный ордер или None в случае ошибки
@@ -87,12 +89,41 @@ class OrderExecutor:
                 f"{position.quantity} акций → {quantity_in_lots} лотов (размер лота: {lot_size})"
             )
             
+            # Рассчитываем цену исполнения с пропорциональным смещением от цены активации
+            # Смещение = 10% от размера стопа, но не менее 1 шага цены
+            execution_price = stop_price
+            if sl_pct is not None and sl_pct > Decimal('0'):
+                # Получаем минимальный шаг цены
+                min_price_increment, _ = await self.instrument_cache.get_price_step(position.figi)
+                
+                # Рассчитываем смещение (10% от размера стопа)
+                execution_offset_pct = sl_pct * Decimal('0.1')
+                
+                # Минимальное смещение - 1 шаг цены
+                min_offset_pct = min_price_increment / stop_price * Decimal('100')
+                execution_offset_pct = max(execution_offset_pct, min_offset_pct)
+                
+                # Рассчитываем цену исполнения в зависимости от направления
+                if direction == StopOrderDirection.STOP_ORDER_DIRECTION_SELL:  # LONG позиция
+                    execution_price = stop_price * (Decimal('1') - execution_offset_pct / Decimal('100'))
+                else:  # SHORT позиция
+                    execution_price = stop_price * (Decimal('1') + execution_offset_pct / Decimal('100'))
+                
+                # Округляем до минимального шага цены
+                execution_price = round_to_step(execution_price, min_price_increment)
+                
+                logger.info(
+                    f"Рассчитана цена исполнения для {position.ticker}: "
+                    f"stop_price={stop_price}, execution_price={execution_price} "
+                    f"(смещение {execution_offset_pct:.3f}%)"
+                )
+            
             # Выставляем ордер через API (передаем параметры напрямую)
             response = await self.api_client.services.stop_orders.post_stop_order(
                 figi=position.figi,
                 quantity=quantity_in_lots,  # ВАЖНО: передаем в лотах!
-                price=decimal_to_quotation(stop_price),
-                stop_price=decimal_to_quotation(stop_price),
+                price=decimal_to_quotation(execution_price),  # Цена исполнения
+                stop_price=decimal_to_quotation(stop_price),  # Цена активации
                 direction=direction,
                 account_id=position.account_id,
                 stop_order_type=stop_order_type,
@@ -108,8 +139,8 @@ class OrderExecutor:
                 order_type="STOP",
                 direction="SELL" if direction == StopOrderDirection.STOP_ORDER_DIRECTION_SELL else "BUY",
                 quantity=position.quantity,
-                price=float(stop_price),
-                stop_price=float(stop_price),
+                price=float(execution_price),  # Цена исполнения
+                stop_price=float(stop_price),  # Цена активации
                 status="NEW",
                 order_purpose="STOP_LOSS"
             )
@@ -118,8 +149,8 @@ class OrderExecutor:
             
             logger.info(
                 f"Выставлен стоп-лосс (STOP_LIMIT) для {position.ticker} ({position.instrument_type}): "
-                f"цена={stop_price}, количество={position.quantity}, "
-                f"ID={response.stop_order_id}"
+                f"цена активации={stop_price}, цена исполнения={execution_price}, "
+                f"количество={position.quantity}, ID={response.stop_order_id}"
             )
             
             # Логируем событие
@@ -128,7 +159,7 @@ class OrderExecutor:
                 account_id=position.account_id,
                 figi=position.figi,
                 ticker=position.ticker,
-                description=f"Выставлен стоп-лосс для {position.ticker}: цена={stop_price}",
+                description=f"Выставлен стоп-лосс для {position.ticker}: цена активации={stop_price}, цена исполнения={execution_price}",
                 details={
                     "order_id": response.stop_order_id,
                     "price": float(stop_price),
@@ -440,7 +471,8 @@ class OrderExecutor:
         self,
         position: Position,
         sl_price: Decimal,
-        tp_price: Decimal
+        tp_price: Decimal,
+        sl_pct: Optional[Decimal] = None
     ) -> Tuple[Optional[Order], Optional[Order]]:
         """
         Выставление стоп-лосс и тейк-профит ордеров для позиции
@@ -449,6 +481,7 @@ class OrderExecutor:
             position: Позиция
             sl_price: Цена стоп-лосса
             tp_price: Цена тейк-профита
+            sl_pct: Размер стопа в процентах (для расчета цены исполнения)
             
         Returns:
             Tuple[Optional[Order], Optional[Order]]: (стоп-лосс ордер, тейк-профит ордер)
@@ -458,7 +491,7 @@ class OrderExecutor:
             await self.cancel_all_position_orders(position.id)
             
             # Выставляем новые ордера
-            sl_order = await self.place_stop_loss_order(position, sl_price)
+            sl_order = await self.place_stop_loss_order(position, sl_price, sl_pct)
             tp_order = await self.place_take_profit_order(position, tp_price)
             
             return sl_order, tp_order

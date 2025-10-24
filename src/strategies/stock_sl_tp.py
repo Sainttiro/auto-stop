@@ -50,11 +50,19 @@ class StockStrategy(BaseStrategy):
                 instrument_settings=instrument_settings
             )
             
+            # Получаем размер стопа в процентах для расчета цены исполнения
+            sl_pct = None
+            if instrument_settings and instrument_settings.stop_loss_pct is not None:
+                sl_pct = Decimal(str(instrument_settings.stop_loss_pct))
+            else:
+                sl_pct = Decimal(str(self.risk_calculator.default_settings.stocks.stop_loss_pct))
+            
             # Выставляем ордера
             sl_order, tp_order = await self.order_executor.place_sl_tp_orders(
                 position=position,
                 sl_price=sl_price,
-                tp_price=tp_price
+                tp_price=tp_price,
+                sl_pct=sl_pct
             )
             
             # Проверяем результат
@@ -107,6 +115,13 @@ class StockStrategy(BaseStrategy):
                 instrument_settings=instrument_settings
             )
             
+            # Получаем размер стопа в процентах для расчета цены исполнения
+            sl_pct = None
+            if instrument_settings and instrument_settings.stop_loss_pct is not None:
+                sl_pct = Decimal(str(instrument_settings.stop_loss_pct))
+            else:
+                sl_pct = Decimal(str(self.risk_calculator.default_settings.stocks.stop_loss_pct))
+            
             # Отменяем существующие ордера и выставляем новые
             cancelled = await self.order_executor.cancel_all_position_orders(position.id)
             logger.info(f"Отменено {cancelled} ордеров для {position.ticker}")
@@ -115,7 +130,8 @@ class StockStrategy(BaseStrategy):
             sl_order, tp_order = await self.order_executor.place_sl_tp_orders(
                 position=position,
                 sl_price=sl_price,
-                tp_price=tp_price
+                tp_price=tp_price,
+                sl_pct=sl_pct
             )
             
             # Проверяем результат
