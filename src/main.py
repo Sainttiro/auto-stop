@@ -217,7 +217,10 @@ class AutoStopSystem:
         Инициализация компонентов аналитики
         """
         # Инициализация fetcher для получения операций из API
-        self.operations_fetcher = OperationsFetcher(self.api_client)
+        self.operations_fetcher = OperationsFetcher(
+            api_client=self.api_client,
+            instrument_cache=self.instrument_cache
+        )
         
         # Инициализация кэша операций
         self.operations_cache = OperationsCache(

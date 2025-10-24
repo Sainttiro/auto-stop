@@ -255,7 +255,7 @@ class ReportFormatter:
             for op in profitable_sells:
                 price_info = self._get_price_info(op, buys.get(op.ticker))
                 report_lines.append(
-                    f"• {op.ticker}: +{op.yield_value:,.0f}₽ {price_info}"
+                    f"• {op.ticker} (тикер): +{op.yield_value:,.0f}₽ {price_info}"
                 )
         else:
             report_lines.append("\n✅ Прибыльные:\n(пусто)")
@@ -267,7 +267,7 @@ class ReportFormatter:
             for op in losing_sells:
                 price_info = self._get_price_info(op, buys.get(op.ticker))
                 report_lines.append(
-                    f"• {op.ticker}: {op.yield_value:,.0f}₽ {price_info}"
+                    f"• {op.ticker} (тикер): {op.yield_value:,.0f}₽ {price_info}"
                 )
         else:
             report_lines.append("\n❌ Убыточные:\n(пусто)")
@@ -278,7 +278,7 @@ class ReportFormatter:
             report_lines.append("\n⏳ Открытые позиции:")
             for ticker, position in open_positions.items():
                 report_lines.append(
-                    f"• {ticker}: {position['quantity']} лотов @ {position['price']:,.2f}"
+                    f"• {ticker} (тикер): {position['quantity']} лотов @ {position['price']:,.2f}"
                 )
         
         return '\n'.join(report_lines)

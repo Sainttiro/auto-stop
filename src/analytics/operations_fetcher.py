@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from tinkoff.invest import OperationType, OperationState, GetOperationsByCursorRequest
 
 from src.api.client import TinkoffAPIClient
+from src.api.instrument_info import InstrumentInfoCache
 from src.utils.logger import get_logger
 
 logger = get_logger("analytics.operations_fetcher")
@@ -17,14 +18,16 @@ class OperationsFetcher:
     Класс для получения операций из Tinkoff API
     """
     
-    def __init__(self, api_client: TinkoffAPIClient):
+    def __init__(self, api_client: TinkoffAPIClient, instrument_cache: Optional[InstrumentInfoCache] = None):
         """
         Инициализация
         
         Args:
             api_client: Клиент API Tinkoff
+            instrument_cache: Кэш информации об инструментах (опционально)
         """
         self.api_client = api_client
+        self.instrument_cache = instrument_cache
     
     async def fetch_operations(
         self,
@@ -89,7 +92,7 @@ class OperationsFetcher:
                 
                 # Обработка операций
                 for item in response.items:
-                    operation = self._parse_operation(item)
+                    operation = await self._parse_operation(item)
                     if operation:
                         operations.append(operation)
                 
@@ -108,7 +111,7 @@ class OperationsFetcher:
             logger.error(f"Ошибка при получении операций: {e}")
             raise
     
-    def _parse_operation(self, item) -> Optional[dict]:
+    async def _parse_operation(self, item) -> Optional[dict]:
         """
         Парсинг операции из ответа API
         
@@ -131,12 +134,21 @@ class OperationsFetcher:
             figi = item.figi if item.figi else None
             instrument_type = item.instrument_type if item.instrument_type else None
             
-            # Пытаемся извлечь тикер из названия операции
-            if item.name:
+            # Получаем тикер по FIGI, если доступен кэш инструментов
+            if figi and self.instrument_cache:
+                try:
+                    ticker = await self.instrument_cache.get_ticker_by_figi(figi)
+                    logger.debug(f"Получен тикер {ticker} для FIGI {figi}")
+                except Exception as e:
+                    logger.warning(f"Не удалось получить тикер для FIGI {figi}: {e}")
+            
+            # Запасной вариант: пытаемся извлечь тикер из названия операции
+            if not ticker and item.name:
                 # Название обычно в формате "Покупка SBER" или "Продажа GAZP"
                 parts = item.name.split()
                 if len(parts) >= 2:
                     ticker = parts[-1]
+                    logger.debug(f"Извлечен тикер {ticker} из названия операции: {item.name}")
             
             # Количество и цена
             quantity = item.quantity if item.quantity else 0
