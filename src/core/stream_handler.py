@@ -553,8 +553,10 @@ class StreamHandler:
         """
         Обработка изменения позиции по конкретному инструменту
         
-        ВАЖНО: Этот метод НЕ обновляет количество позиции, так как это делает поток сделок.
-        Он только отслеживает закрытие позиций (когда количество становится 0).
+        ОБНОВЛЕНО: Теперь обрабатывает ВСЕ изменения позиций:
+        - Создание новых позиций (открытых вручную)
+        - Изменение количества
+        - Закрытие позиций
         
         Args:
             security: Данные о позиции по инструменту
@@ -563,17 +565,117 @@ class StreamHandler:
         try:
             figi = security.figi
             
-            # Получаем текущую позицию из БД
-            position = await self.position_manager.get_position(account_id, figi)
-            if not position:
-                logger.debug(f"Позиция для {figi} не найдена в БД, пропускаем")
-                return
-            
             # Получаем новое количество из потока
             new_quantity = security.balance
             
-            # Проверяем, не закрыта ли позиция (количество = 0)
-            if new_quantity == 0 and position.quantity > 0:
+            # Получаем информацию об инструменте
+            instrument = await self.instrument_cache.get_instrument_by_figi(figi)
+            if not instrument:
+                logger.warning(f"Не удалось получить информацию об инструменте {figi}")
+                return
+            
+            ticker = instrument.ticker
+            instrument_type = "stock" if instrument.instrument_type.lower().startswith("share") else "futures"
+            
+            # Получаем среднюю цену из API
+            avg_price = Decimal(0)
+            if hasattr(security, 'average_position_price') and security.average_position_price:
+                avg_price = quotation_to_decimal(security.average_position_price)
+            
+            # Получаем текущую позицию из БД
+            position = await self.position_manager.get_position(account_id, figi)
+            
+            # СЛУЧАЙ 1: Новая позиция (открыта вручную)
+            if not position and new_quantity > 0:
+                if avg_price == 0:
+                    logger.warning(f"Средняя цена для {ticker} недоступна, пропускаем")
+                    return
+                
+                logger.info(
+                    f"🆕 Обнаружена новая позиция из PositionsStream: {ticker}, "
+                    f"количество={new_quantity}, цена={avg_price}"
+                )
+                
+                # Создаем позицию
+                position = await self.position_manager.create_position(
+                    account_id=account_id,
+                    figi=figi,
+                    ticker=ticker,
+                    instrument_type=instrument_type,
+                    quantity=new_quantity,
+                    price=avg_price,
+                    direction="LONG"
+                )
+                
+                # Получаем настройки инструмента
+                instrument_settings = self.instruments_config.instruments.get(ticker)
+                
+                # Проверяем, нужно ли использовать многоуровневый тейк-профит
+                use_multi_tp = False
+                multi_tp_levels = []
+                
+                if instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
+                    use_multi_tp = True
+                    multi_tp_levels = [(level.level_pct, level.volume_pct) for level in instrument_settings.multi_tp.levels]
+                elif self.config.multi_take_profit.enabled:
+                    use_multi_tp = True
+                    multi_tp_levels = [(level.level_pct, level.volume_pct) for level in self.config.multi_take_profit.levels]
+                
+                logger.info(f"Режим TP для {ticker}: {'многоуровневый' if use_multi_tp else 'обычный'}")
+                
+                # Рассчитываем уровни SL/TP
+                if use_multi_tp:
+                    # Многоуровневый тейк-профит
+                    logger.debug(f"Расчет многоуровневых SL/TP для {ticker}...")
+                    sl_price, tp_levels = await self._calculate_multi_tp_levels(
+                        position=position,
+                        instrument_settings=instrument_settings,
+                        account_id=account_id
+                    )
+                    logger.info(f"Рассчитаны уровни: SL={sl_price}, TP уровней={len(tp_levels)}")
+                    
+                    # Выставляем ордера
+                    logger.debug(f"Выставление многоуровневых ордеров для {ticker}...")
+                    sl_order, tp_orders = await self.order_executor.place_multi_tp_orders(
+                        position=position,
+                        sl_price=sl_price,
+                        tp_levels=tp_levels
+                    )
+                    logger.info(f"Выставлены ордера: SL={'OK' if sl_order else 'FAIL'}, TP={len([o for o in tp_orders if o])} из {len(tp_orders)}")
+                    
+                    # Сохраняем уровни в БД
+                    await self.position_manager.setup_multi_tp_levels(
+                        position_id=position.id,
+                        levels=multi_tp_levels
+                    )
+                else:
+                    # Обычный SL/TP
+                    logger.debug(f"Расчет обычных SL/TP для {ticker}...")
+                    sl_price, tp_price = await self.risk_calculator.calculate_levels(
+                        figi=figi,
+                        ticker=ticker,
+                        instrument_type=instrument_type,
+                        avg_price=avg_price,
+                        direction="LONG",
+                        instrument_settings=instrument_settings,
+                        account_id=account_id
+                    )
+                    logger.info(f"Рассчитаны уровни: SL={sl_price}, TP={tp_price}")
+                    
+                    # Выставляем ордера
+                    logger.debug(f"Выставление ордеров SL/TP для {ticker}...")
+                    sl_order, tp_order = await self.order_executor.place_sl_tp_orders(
+                        position=position,
+                        sl_price=sl_price,
+                        tp_price=tp_price
+                    )
+                    logger.info(f"Выставлены ордера: SL={'OK' if sl_order else 'FAIL'}, TP={'OK' if tp_order else 'FAIL'}")
+                
+                logger.info(f"✅ Позиция {ticker} синхронизирована и защищена SL/TP")
+                return
+            
+            # СЛУЧАЙ 2: Позиция закрыта
+            if position and new_quantity == 0:
                 logger.info(
                     f"Позиция {position.ticker} ({figi}) закрыта в брокере "
                     f"(количество {position.quantity} -> 0)"
@@ -581,14 +683,55 @@ class StreamHandler:
                 await self.position_manager.close_position(position.id)
                 return
             
-            # Если количество изменилось, но не стало 0, это обработает поток сделок
-            # Здесь мы только логируем для отладки
-            if position.quantity != new_quantity:
-                logger.debug(
-                    f"Обнаружено изменение количества {position.ticker} в потоке позиций: "
-                    f"{position.quantity} -> {new_quantity}. "
-                    f"Обновление будет выполнено потоком сделок."
+            # СЛУЧАЙ 3: Изменение количества (усреднение или частичное закрытие)
+            if position and position.quantity != new_quantity:
+                logger.info(
+                    f"🔄 Изменение количества в PositionsStream: {ticker}, "
+                    f"{position.quantity} -> {new_quantity}"
                 )
+                
+                # Обновляем позицию
+                if avg_price > 0:
+                    await self.position_manager.update_position(
+                        position_id=position.id,
+                        new_quantity=new_quantity,
+                        new_price=avg_price
+                    )
+                else:
+                    await self.position_manager.update_position(
+                        position_id=position.id,
+                        new_quantity=new_quantity
+                    )
+                
+                # Отменяем старые ордера
+                cancelled = await self.order_executor.cancel_all_position_orders(position.id)
+                logger.info(f"Отменено {cancelled} старых ордеров для {ticker}")
+                
+                # Получаем обновленную позицию
+                updated_position = await self.position_manager.get_position(account_id, figi)
+                
+                # Получаем настройки инструмента
+                instrument_settings = self.instruments_config.instruments.get(ticker)
+                
+                # Рассчитываем новые SL/TP
+                sl_price, tp_price = await self.risk_calculator.calculate_levels(
+                    figi=figi,
+                    ticker=ticker,
+                    instrument_type=instrument_type,
+                    avg_price=Decimal(str(updated_position.average_price)),
+                    direction=updated_position.direction,
+                    instrument_settings=instrument_settings,
+                    account_id=account_id
+                )
+                
+                # Выставляем новые ордера
+                await self.order_executor.place_sl_tp_orders(
+                    position=updated_position,
+                    sl_price=sl_price,
+                    tp_price=tp_price
+                )
+                
+                logger.info(f"✅ Позиция {ticker} обновлена и защищена новыми SL/TP")
         
         except Exception as e:
             logger.error(f"Ошибка при обработке позиции {figi}: {e}")
