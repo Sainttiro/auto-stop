@@ -76,6 +76,10 @@ class StreamHandler:
         # Множество обработанных сделок для избежания дублирования
         # Используем trade_id вместо order_id, так как один ордер может генерировать несколько сделок
         self._processed_trades: Set[str] = set()
+        
+        # Словарь для отслеживания позиций, ожидающих активации
+        # Формат: {figi: {'position_id': id, 'sl_activation_price': price, 'tp_activation_price': price, 'sl_activated': bool, 'tp_activated': bool}}
+        self._pending_activations: Dict[str, Dict[str, Any]] = {}
     
     async def start(self, account_id: str):
         """
@@ -549,6 +553,106 @@ class StreamHandler:
                 details={"error": str(e)}
             )
     
+    async def _check_activation_conditions(
+        self,
+        figi: str,
+        current_price: Decimal,
+        position: Position,
+        settings: Dict[str, Any]
+    ) -> Tuple[bool, bool]:
+        """
+        Проверка условий активации SL/TP
+        
+        Args:
+            figi: FIGI инструмента
+            current_price: Текущая цена
+            position: Позиция
+            settings: Настройки инструмента
+            
+        Returns:
+            Tuple[bool, bool]: (sl_activated, tp_activated)
+        """
+        sl_activation_pct = settings.get('sl_activation_pct')
+        tp_activation_pct = settings.get('tp_activation_pct')
+        
+        # Если нет настроек активации, считаем что активировано сразу
+        if sl_activation_pct is None and tp_activation_pct is None:
+            return True, True
+        
+        # Получаем цены активации
+        sl_activation_price, tp_activation_price = await self.risk_calculator.calculate_activation_prices(
+            figi=figi,
+            ticker=position.ticker,
+            instrument_type=position.instrument_type,
+            avg_price=Decimal(str(position.average_price)),
+            direction=position.direction,
+            sl_activation_pct=sl_activation_pct,
+            tp_activation_pct=tp_activation_pct
+        )
+        
+        # Проверяем активацию SL
+        sl_activated = True  # По умолчанию активировано, если нет настроек активации
+        if sl_activation_price is not None:
+            if position.direction == "LONG":
+                # Для LONG: активация SL когда цена падает ниже уровня активации
+                sl_activated = current_price <= sl_activation_price
+            else:  # SHORT
+                # Для SHORT: активация SL когда цена растет выше уровня активации
+                sl_activated = current_price >= sl_activation_price
+        
+        # Проверяем активацию TP
+        tp_activated = True  # По умолчанию активировано, если нет настроек активации
+        if tp_activation_price is not None:
+            if position.direction == "LONG":
+                # Для LONG: активация TP когда цена растет выше уровня активации
+                tp_activated = current_price >= tp_activation_price
+            else:  # SHORT
+                # Для SHORT: активация TP когда цена падает ниже уровня активации
+                tp_activated = current_price <= tp_activation_price
+        
+        # Логируем активацию
+        if sl_activated and sl_activation_price is not None:
+            logger.info(
+                f"🔔 SL для {position.ticker} активирован! "
+                f"Цена активации: {sl_activation_price}, текущая цена: {current_price}"
+            )
+            
+            # Логируем событие
+            await self.db.log_event(
+                event_type="SL_ACTIVATED",
+                account_id=position.account_id,
+                figi=position.figi,
+                ticker=position.ticker,
+                description=f"SL для {position.ticker} активирован",
+                details={
+                    "activation_price": float(sl_activation_price),
+                    "current_price": float(current_price),
+                    "position_id": position.id
+                }
+            )
+        
+        if tp_activated and tp_activation_price is not None:
+            logger.info(
+                f"🔔 TP для {position.ticker} активирован! "
+                f"Цена активации: {tp_activation_price}, текущая цена: {current_price}"
+            )
+            
+            # Логируем событие
+            await self.db.log_event(
+                event_type="TP_ACTIVATED",
+                account_id=position.account_id,
+                figi=position.figi,
+                ticker=position.ticker,
+                description=f"TP для {position.ticker} активирован",
+                details={
+                    "activation_price": float(tp_activation_price),
+                    "current_price": float(current_price),
+                    "position_id": position.id
+                }
+            )
+        
+        return sl_activated, tp_activated
+    
     async def _process_security_position(self, security, account_id: str):
         """
         Обработка изменения позиции по конкретному инструменту
@@ -557,6 +661,7 @@ class StreamHandler:
         - Создание новых позиций (открытых вручную)
         - Изменение количества
         - Закрытие позиций
+        - Отслеживание цены для активации SL/TP
         
         Args:
             security: Данные о позиции по инструменту
@@ -577,13 +682,103 @@ class StreamHandler:
             ticker = instrument.ticker
             instrument_type = "stock" if instrument.instrument_type.lower().startswith("share") else "futures"
             
-            # Получаем среднюю цену из API
+            # Получаем среднюю цену и текущую цену из API
             avg_price = Decimal(0)
+            current_price = Decimal(0)
+            
             if hasattr(security, 'average_position_price') and security.average_position_price:
                 avg_price = quotation_to_decimal(security.average_position_price)
             
+            # Получаем текущую цену из last_price, если доступно
+            if hasattr(security, 'current_price') and security.current_price:
+                current_price = quotation_to_decimal(security.current_price)
+            elif hasattr(security, 'last_price') and security.last_price:
+                current_price = quotation_to_decimal(security.last_price)
+            
             # Получаем текущую позицию из БД
             position = await self.position_manager.get_position(account_id, figi)
+            
+            # Проверяем активацию для существующих позиций
+            if position and current_price > 0:
+                # Проверяем, есть ли позиция в списке ожидающих активации
+                if figi in self._pending_activations and self._pending_activations[figi]['position_id'] == position.id:
+                    # Получаем настройки активации
+                    settings = await self.settings_manager.get_effective_settings(
+                        account_id=account_id,
+                        ticker=position.ticker
+                    )
+                    
+                    # Проверяем условия активации
+                    sl_activated, tp_activated = await self._check_activation_conditions(
+                        figi=figi,
+                        current_price=current_price,
+                        position=position,
+                        settings=settings
+                    )
+                    
+                    # Если SL активирован и раньше не был активирован
+                    if sl_activated and not self._pending_activations[figi]['sl_activated']:
+                        self._pending_activations[figi]['sl_activated'] = True
+                        
+                        # Рассчитываем уровень SL
+                        sl_price, _ = await self.risk_calculator.calculate_levels(
+                            figi=figi,
+                            ticker=position.ticker,
+                            instrument_type=position.instrument_type,
+                            avg_price=Decimal(str(position.average_price)),
+                            direction=position.direction,
+                            account_id=account_id
+                        )
+                        
+                        # Выставляем SL ордер
+                        await self.order_executor.place_stop_loss_order(position, sl_price)
+                        
+                        # Отправляем уведомление
+                        await self.db.log_event(
+                            event_type="SL_ORDER_PLACED",
+                            account_id=account_id,
+                            figi=figi,
+                            ticker=position.ticker,
+                            description=f"Выставлен SL ордер для {position.ticker} после активации",
+                            details={
+                                "price": float(sl_price),
+                                "position_id": position.id
+                            }
+                        )
+                    
+                    # Если TP активирован и раньше не был активирован
+                    if tp_activated and not self._pending_activations[figi]['tp_activated']:
+                        self._pending_activations[figi]['tp_activated'] = True
+                        
+                        # Рассчитываем уровень TP
+                        _, tp_price = await self.risk_calculator.calculate_levels(
+                            figi=figi,
+                            ticker=position.ticker,
+                            instrument_type=position.instrument_type,
+                            avg_price=Decimal(str(position.average_price)),
+                            direction=position.direction,
+                            account_id=account_id
+                        )
+                        
+                        # Выставляем TP ордер
+                        await self.order_executor.place_take_profit_order(position, tp_price)
+                        
+                        # Отправляем уведомление
+                        await self.db.log_event(
+                            event_type="TP_ORDER_PLACED",
+                            account_id=account_id,
+                            figi=figi,
+                            ticker=position.ticker,
+                            description=f"Выставлен TP ордер для {position.ticker} после активации",
+                            details={
+                                "price": float(tp_price),
+                                "position_id": position.id
+                            }
+                        )
+                    
+                    # Если оба активированы, удаляем из списка ожидающих
+                    if sl_activated and tp_activated:
+                        del self._pending_activations[figi]
             
             # СЛУЧАЙ 1: Новая позиция (открыта вручную)
             if not position and new_quantity > 0:

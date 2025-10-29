@@ -206,6 +206,10 @@ class GlobalSettings(Base):
     stop_loss_pct = Column(Float, default=0.4)  # Процент стоп-лосса
     take_profit_pct = Column(Float, default=1.0)  # Процент тейк-профита
     
+    # Настройки активации SL/TP
+    sl_activation_pct = Column(Float, nullable=True)  # Цена активации SL (в %)
+    tp_activation_pct = Column(Float, nullable=True)  # Цена активации TP (в %)
+    
     # Multi-TP настройки
     multi_tp_enabled = Column(Boolean, default=False)  # Включен ли Multi-TP
     multi_tp_levels = Column(Text, nullable=True)  # JSON с уровнями Multi-TP
@@ -231,6 +235,10 @@ class InstrumentSettings(Base):
     # Базовые настройки SL/TP (NULL = использовать глобальные)
     stop_loss_pct = Column(Float, nullable=True)
     take_profit_pct = Column(Float, nullable=True)
+    
+    # Настройки активации SL/TP (NULL = использовать глобальные)
+    sl_activation_pct = Column(Float, nullable=True)
+    tp_activation_pct = Column(Float, nullable=True)
     
     # Multi-TP настройки (NULL = использовать глобальные)
     multi_tp_enabled = Column(Boolean, nullable=True)  # NULL, True, False

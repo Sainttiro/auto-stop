@@ -13,6 +13,7 @@ Auto-Stop v2.x.x - production-система автоматического уп
 - ✅ Пересчет уровней при изменении средней цены позиции
 - ✅ Поддержка разных методов расчета для акций и фьючерсов
 - ✅ Многоуровневый тейк-профит с частичным закрытием позиции
+- ✅ Условная активация SL/TP при достижении заданного уровня цены
 - ✅ Мультиаккаунты с горячим переключением без перезапуска
 - ✅ Интерактивное управление через Telegram бота
 - ✅ Торговая статистика и аналитика
@@ -48,7 +49,20 @@ Risk Calculator: Рассчитать новые уровни SL/TP
 ↓
 Order Executor: Отменить старые SL/TP (если есть)
 ↓
-Order Executor: Выставить новые SL/TP
+Order Executor: Проверить настройки активации
+↓
+Если активация настроена:
+  ↓
+  Добавить в список ожидающих активации
+  ↓
+  Stream Handler: Отслеживать цену для активации
+  ↓
+  При достижении цены активации:
+    ↓
+    Order Executor: Выставить SL/TP ордера
+Иначе:
+  ↓
+  Order Executor: Выставить SL/TP ордера сразу
 ↓
 Database: Сохранить состояние
 ↓
@@ -141,6 +155,7 @@ class MyClass:
 - ❌ Игнорировать ошибки в потоках gRPC
 - ❌ Использовать hardcoded значения вместо конфигурации
 - ❌ Изменять формат хранения настроек без миграции
+- ❌ Изменять логику активации SL/TP без проверки на реальных данных
 
 ### ОБЯЗАТЕЛЬНО:
 - ✅ Тестировать на минимальных суммах
@@ -164,6 +179,7 @@ class MyClass:
 - **Работа с БД** → `src/storage/database.py`
 - **Статистика** → `src/analytics/statistics.py`
 - **Отчеты** → `src/analytics/reports.py`
+- **Активация SL/TP** → `src/core/stream_handler.py` и `src/core/order_executor.py`
 
 ### Важные файлы:
 - `map.txt` - полная карта проекта
@@ -286,7 +302,7 @@ docker compose restart
 
 ## 📋 Примеры кода
 
-### Расчет SL/TP:
+### Расчет SL/TP и цен активации:
 ```python
 async def calculate_levels(
     self,
@@ -317,17 +333,37 @@ async def calculate_levels(
     
     sl_pct = settings["stop_loss_pct"]
     tp_pct = settings["take_profit_pct"]
+    sl_activation_pct = settings.get("sl_activation_pct")
+    tp_activation_pct = settings.get("tp_activation_pct")
     
     if direction == "LONG":
         sl_price = avg_price * (1 - sl_pct / 100)
         tp_price = avg_price * (1 + tp_pct / 100)
+        
+        # Цены активации (если настроены)
+        sl_activation_price = None
+        tp_activation_price = None
+        if sl_activation_pct is not None:
+            sl_activation_price = avg_price * (1 - sl_activation_pct / 100)
+        if tp_activation_pct is not None:
+            tp_activation_price = avg_price * (1 + tp_activation_pct / 100)
     else:  # SHORT
         sl_price = avg_price * (1 + sl_pct / 100)
         tp_price = avg_price * (1 - tp_pct / 100)
+        
+        # Цены активации (если настроены)
+        sl_activation_price = None
+        tp_activation_price = None
+        if sl_activation_pct is not None:
+            sl_activation_price = avg_price * (1 + sl_activation_pct / 100)
+        if tp_activation_pct is not None:
+            tp_activation_price = avg_price * (1 - tp_activation_pct / 100)
     
     return {
         "sl_price": sl_price,
         "tp_price": tp_price,
+        "sl_activation_price": sl_activation_price,
+        "tp_activation_price": tp_activation_price,
         "settings_used": settings
     }
 ```

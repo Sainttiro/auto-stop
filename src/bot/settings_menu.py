@@ -33,7 +33,11 @@ logger = get_logger("bot.settings_menu")
     ADD_INSTRUMENT,
     EDIT_INSTRUMENT_SL,
     EDIT_INSTRUMENT_TP,
-) = range(18)
+    EDIT_SL_ACTIVATION,
+    EDIT_TP_ACTIVATION,
+    EDIT_INSTRUMENT_SL_ACTIVATION,
+    EDIT_INSTRUMENT_TP_ACTIVATION,
+) = range(22)
 
 
 class SettingsMenu:
@@ -132,9 +136,15 @@ class SettingsMenu:
             except:
                 pass
         
+        # Статус активации
+        sl_activation_status = "✅" if settings.sl_activation_pct is not None else "❌"
+        tp_activation_status = "✅" if settings.tp_activation_pct is not None else "❌"
+        
         keyboard = [
             [InlineKeyboardButton("✏️ Изменить SL", callback_data="edit_global_sl")],
             [InlineKeyboardButton("✏️ Изменить TP", callback_data="edit_global_tp")],
+            [InlineKeyboardButton("🔔 Активация SL", callback_data="edit_global_sl_activation")],
+            [InlineKeyboardButton("🔔 Активация TP", callback_data="edit_global_tp_activation")],
             [InlineKeyboardButton("🎯 Настроить Multi-TP", callback_data="global_multi_tp")],
             [InlineKeyboardButton("◀️ Назад", callback_data="main_menu")]
         ]
@@ -146,8 +156,18 @@ class SettingsMenu:
             "┌─────────────────────────┐\n"
             f"│ 🛑 Stop Loss: <b>{settings.stop_loss_pct}%</b>\n"
             f"│ 🎯 Take Profit: <b>{settings.take_profit_pct}%</b>\n"
-            f"│ 🎯 Multi-TP: {multi_tp_status}"
+            f"│ 🔔 Активация SL: {sl_activation_status} "
         )
+        
+        if settings.sl_activation_pct is not None:
+            text += f"<b>{settings.sl_activation_pct}%</b>"
+        
+        text += f"\n│ 🔔 Активация TP: {tp_activation_status} "
+        
+        if settings.tp_activation_pct is not None:
+            text += f"<b>{settings.tp_activation_pct}%</b>"
+        
+        text += f"\n│ 🎯 Multi-TP: {multi_tp_status}"
         
         if multi_tp_levels_count > 0:
             text += f" ({multi_tp_levels_count} ур.)"
@@ -662,6 +682,24 @@ class SettingsMenu:
         else:
             tp_source = "глобальные"
         
+        # Статус активации
+        sl_activation_text = "не задана"
+        tp_activation_text = "не задана"
+        sl_activation_source = "глобальные"
+        tp_activation_source = "глобальные"
+        
+        if effective['sl_activation_pct'] is not None:
+            sl_activation_text = f"{effective['sl_activation_pct']}%"
+            if inst_settings and inst_settings.sl_activation_pct is not None:
+                sl_activation_text += " ✏️"
+                sl_activation_source = "свои"
+        
+        if effective['tp_activation_pct'] is not None:
+            tp_activation_text = f"{effective['tp_activation_pct']}%"
+            if inst_settings and inst_settings.tp_activation_pct is not None:
+                tp_activation_text += " ✏️"
+                tp_activation_source = "свои"
+        
         multi_tp_status = "включен" if effective['multi_tp_enabled'] else "выключен"
         if inst_settings and inst_settings.multi_tp_enabled is not None:
             multi_tp_status += " ✏️"
@@ -672,6 +710,8 @@ class SettingsMenu:
         keyboard = [
             [InlineKeyboardButton("✏️ Изменить SL", callback_data=f"edit_inst_sl_{ticker}")],
             [InlineKeyboardButton("✏️ Изменить TP", callback_data=f"edit_inst_tp_{ticker}")],
+            [InlineKeyboardButton("🔔 Активация SL", callback_data=f"edit_inst_sl_activation_{ticker}")],
+            [InlineKeyboardButton("🔔 Активация TP", callback_data=f"edit_inst_tp_activation_{ticker}")],
             [InlineKeyboardButton("🎯 Настроить Multi-TP", callback_data=f"inst_multi_tp_{ticker}")],
             [InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_{ticker}")],
             [InlineKeyboardButton("🗑️ Удалить инструмент", callback_data=f"delete_inst_{ticker}")],
@@ -685,6 +725,8 @@ class SettingsMenu:
             "┌─────────────────────────┐\n"
             f"│ 🛑 SL: <b>{sl_text}</b> ({sl_source})\n"
             f"│ 🎯 TP: <b>{tp_text}</b> ({tp_source})\n"
+            f"│ 🔔 Активация SL: <b>{sl_activation_text}</b> ({sl_activation_source})\n"
+            f"│ 🔔 Активация TP: <b>{tp_activation_text}</b> ({tp_activation_source})\n"
             f"│ 🎯 Multi-TP: {multi_tp_status} ({multi_tp_source})\n"
             "└─────────────────────────┘"
         )
@@ -957,6 +999,642 @@ class SettingsMenu:
             )
             return EDIT_INSTRUMENT_TP
     
+    # ==================== РЕДАКТИРОВАНИЕ АКТИВАЦИИ SL/TP ====================
+    
+    async def edit_global_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начать редактирование глобальной активации Stop Loss"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить текущее значение
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        settings = await self.settings_manager.get_global_settings(active_account.account_id)
+        current_sl_activation = settings.sl_activation_pct if settings and settings.sl_activation_pct is not None else "не задана"
+        
+        keyboard = [
+            [InlineKeyboardButton("❌ Отключить активацию", callback_data="disable_global_sl_activation")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="global_settings")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        text = (
+            "🔔 <b>Изменить активацию Stop Loss</b>\n\n"
+            f"Текущее значение: <b>{current_sl_activation}</b>\n\n"
+            "Введите новое значение в процентах:\n"
+            "Примеры: <code>0.2</code>, <code>0.3</code>\n\n"
+            "Диапазон: 0.1% - 5%\n\n"
+            "<i>Активация SL - это процент от средней цены, при достижении которого будет выставлен ордер SL.</i>\n"
+            "<i>Например, если SL=0.4%, а активация=0.2%, то ордер SL будет выставлен только когда цена упадет на 0.2%.</i>"
+        )
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        
+        # Сохранить контекст
+        context.user_data['editing'] = 'global_sl_activation'
+        
+        return EDIT_SL_ACTIVATION
+    
+    async def disable_global_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Отключить глобальную активацию Stop Loss"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Обновить настройки
+        await self.settings_manager.update_global_settings(
+            active_account.account_id,
+            sl_activation_pct=None
+        )
+        
+        await query.answer("✅ Активация SL отключена", show_alert=True)
+        
+        # Вернуться в меню глобальных настроек
+        return await self.show_global_settings(update, context)
+    
+    async def save_global_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Сохранить новое значение глобальной активации Stop Loss"""
+        try:
+            # Парсинг значения
+            value = float(update.message.text.strip().replace(',', '.'))
+            
+            # Валидация
+            if value < 0.1 or value > 5:
+                await update.message.reply_text(
+                    "❌ Значение должно быть от 0.1% до 5%\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_SL_ACTIVATION
+            
+            # Получить активный аккаунт
+            active_account = await self.db.get_active_account()
+            if not active_account:
+                await update.message.reply_text("❌ Активный аккаунт не найден")
+                return ConversationHandler.END
+            
+            # Получить текущие настройки для валидации
+            settings = await self.settings_manager.get_global_settings(active_account.account_id)
+            sl_pct = settings.stop_loss_pct if settings else 0.4
+            
+            # Валидация с SL
+            valid, error = self.settings_manager.validate_activation_settings(
+                sl_pct=sl_pct,
+                sl_activation_pct=value,
+                tp_pct=0,
+                tp_activation_pct=None
+            )
+            
+            if not valid:
+                await update.message.reply_text(
+                    f"❌ Ошибка валидации: {error}\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_SL_ACTIVATION
+            
+            # Обновить настройки
+            await self.settings_manager.update_global_settings(
+                active_account.account_id,
+                sl_activation_pct=value
+            )
+            
+            await update.message.reply_text(
+                f"✅ Глобальная активация Stop Loss обновлена: <b>{value}%</b>\n\n"
+                "Возвращаюсь в меню настроек...",
+                parse_mode='HTML'
+            )
+            
+            # Отправляем новое сообщение с меню
+            keyboard = [
+                [InlineKeyboardButton("🌍 Глобальные настройки", callback_data="global_settings")],
+                [InlineKeyboardButton("◀️ Главное меню", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "⚙️ Выберите действие:",
+                reply_markup=reply_markup
+            )
+            
+            return MAIN_MENU
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 0.2):"
+            )
+            return EDIT_SL_ACTIVATION
+    
+    async def edit_global_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начать редактирование глобальной активации Take Profit"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить текущее значение
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        settings = await self.settings_manager.get_global_settings(active_account.account_id)
+        current_tp_activation = settings.tp_activation_pct if settings and settings.tp_activation_pct is not None else "не задана"
+        
+        keyboard = [
+            [InlineKeyboardButton("❌ Отключить активацию", callback_data="disable_global_tp_activation")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="global_settings")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        text = (
+            "🔔 <b>Изменить активацию Take Profit</b>\n\n"
+            f"Текущее значение: <b>{current_tp_activation}</b>\n\n"
+            "Введите новое значение в процентах:\n"
+            "Примеры: <code>0.5</code>, <code>0.7</code>\n\n"
+            "Диапазон: 0.1% - 10%\n\n"
+            "<i>Активация TP - это процент от средней цены, при достижении которого будет выставлен ордер TP.</i>\n"
+            "<i>Например, если TP=1.0%, а активация=0.5%, то ордер TP будет выставлен только когда цена вырастет на 0.5%.</i>"
+        )
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        
+        # Сохранить контекст
+        context.user_data['editing'] = 'global_tp_activation'
+        
+        return EDIT_TP_ACTIVATION
+    
+    async def disable_global_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Отключить глобальную активацию Take Profit"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Обновить настройки
+        await self.settings_manager.update_global_settings(
+            active_account.account_id,
+            tp_activation_pct=None
+        )
+        
+        await query.answer("✅ Активация TP отключена", show_alert=True)
+        
+        # Вернуться в меню глобальных настроек
+        return await self.show_global_settings(update, context)
+    
+    async def save_global_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Сохранить новое значение глобальной активации Take Profit"""
+        try:
+            # Парсинг значения
+            value = float(update.message.text.strip().replace(',', '.'))
+            
+            # Валидация
+            if value < 0.1 or value > 10:
+                await update.message.reply_text(
+                    "❌ Значение должно быть от 0.1% до 10%\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_TP_ACTIVATION
+            
+            # Получить активный аккаунт
+            active_account = await self.db.get_active_account()
+            if not active_account:
+                await update.message.reply_text("❌ Активный аккаунт не найден")
+                return ConversationHandler.END
+            
+            # Получить текущие настройки для валидации
+            settings = await self.settings_manager.get_global_settings(active_account.account_id)
+            tp_pct = settings.take_profit_pct if settings else 1.0
+            
+            # Валидация с TP
+            valid, error = self.settings_manager.validate_activation_settings(
+                sl_pct=0,
+                sl_activation_pct=None,
+                tp_pct=tp_pct,
+                tp_activation_pct=value
+            )
+            
+            if not valid:
+                await update.message.reply_text(
+                    f"❌ Ошибка валидации: {error}\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_TP_ACTIVATION
+            
+            # Обновить настройки
+            await self.settings_manager.update_global_settings(
+                active_account.account_id,
+                tp_activation_pct=value
+            )
+            
+            await update.message.reply_text(
+                f"✅ Глобальная активация Take Profit обновлена: <b>{value}%</b>\n\n"
+                "Возвращаюсь в меню настроек...",
+                parse_mode='HTML'
+            )
+            
+            # Отправляем новое сообщение с меню
+            keyboard = [
+                [InlineKeyboardButton("🌍 Глобальные настройки", callback_data="global_settings")],
+                [InlineKeyboardButton("◀️ Главное меню", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "⚙️ Выберите действие:",
+                reply_markup=reply_markup
+            )
+            
+            return MAIN_MENU
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 0.5):"
+            )
+            return EDIT_TP_ACTIVATION
+    
+    async def edit_instrument_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ticker: str):
+        """Начать редактирование активации Stop Loss для инструмента"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Получить эффективные настройки
+        effective = await self.settings_manager.get_effective_settings(
+            active_account.account_id,
+            ticker
+        )
+        
+        # Получить настройки инструмента
+        inst_settings = await self.settings_manager.get_instrument_settings(
+            active_account.account_id,
+            ticker
+        )
+        
+        current_sl_activation = effective['sl_activation_pct']
+        source = "свои" if inst_settings and inst_settings.sl_activation_pct is not None else "глобальные"
+        
+        keyboard = [
+            [InlineKeyboardButton("❌ Отключить активацию", callback_data=f"disable_inst_sl_activation_{ticker}")],
+            [InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_sl_activation_{ticker}")],
+            [InlineKeyboardButton("❌ Отмена", callback_data=f"instrument_{ticker}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        text = (
+            f"🔔 <b>Изменить активацию Stop Loss для {ticker}</b>\n\n"
+            f"Текущее значение: <b>{current_sl_activation if current_sl_activation is not None else 'не задана'}</b> ({source})\n\n"
+            "Введите новое значение в процентах:\n"
+            "Примеры: <code>0.2</code>, <code>0.3</code>\n\n"
+            "Диапазон: 0.1% - 5%\n\n"
+            "<i>Активация SL - это процент от средней цены, при достижении которого будет выставлен ордер SL.</i>\n"
+            "<i>Например, если SL=0.4%, а активация=0.2%, то ордер SL будет выставлен только когда цена упадет на 0.2%.</i>"
+        )
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        
+        # Сохранить контекст
+        context.user_data['editing'] = 'instrument_sl_activation'
+        context.user_data['ticker'] = ticker
+        
+        return EDIT_INSTRUMENT_SL_ACTIVATION
+    
+    async def disable_instrument_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ticker: str):
+        """Отключить активацию Stop Loss для инструмента"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Обновить настройки
+        await self.settings_manager.update_instrument_settings(
+            active_account.account_id,
+            ticker,
+            sl_activation_pct=0  # Явно задаем 0, чтобы отличать от NULL (глобальные)
+        )
+        
+        await query.answer("✅ Активация SL отключена для инструмента", show_alert=True)
+        
+        # Вернуться в меню настроек инструмента
+        return await self.show_instrument_settings(update, context, ticker)
+    
+    async def reset_instrument_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ticker: str):
+        """Сбросить активацию Stop Loss для инструмента на глобальные"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Обновить настройки
+        await self.settings_manager.update_instrument_settings(
+            active_account.account_id,
+            ticker,
+            sl_activation_pct=None  # NULL = использовать глобальные
+        )
+        
+        await query.answer("✅ Активация SL сброшена на глобальные", show_alert=True)
+        
+        # Вернуться в меню настроек инструмента
+        return await self.show_instrument_settings(update, context, ticker)
+    
+    async def save_instrument_sl_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Сохранить новое значение активации Stop Loss для инструмента"""
+        try:
+            # Парсинг значения
+            value = float(update.message.text.strip().replace(',', '.'))
+            
+            # Валидация
+            if value < 0.1 or value > 5:
+                await update.message.reply_text(
+                    "❌ Значение должно быть от 0.1% до 5%\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_INSTRUMENT_SL_ACTIVATION
+            
+            # Получить тикер из контекста
+            ticker = context.user_data.get('ticker')
+            if not ticker:
+                await update.message.reply_text("❌ Ошибка: тикер не найден")
+                return ConversationHandler.END
+            
+            # Получить активный аккаунт
+            active_account = await self.db.get_active_account()
+            if not active_account:
+                await update.message.reply_text("❌ Активный аккаунт не найден")
+                return ConversationHandler.END
+            
+            # Получить текущие настройки для валидации
+            effective = await self.settings_manager.get_effective_settings(
+                active_account.account_id,
+                ticker
+            )
+            sl_pct = effective['stop_loss_pct']
+            
+            # Валидация с SL
+            valid, error = self.settings_manager.validate_activation_settings(
+                sl_pct=sl_pct,
+                sl_activation_pct=value,
+                tp_pct=0,
+                tp_activation_pct=None
+            )
+            
+            if not valid:
+                await update.message.reply_text(
+                    f"❌ Ошибка валидации: {error}\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_INSTRUMENT_SL_ACTIVATION
+            
+            # Обновить настройки
+            await self.settings_manager.update_instrument_settings(
+                active_account.account_id,
+                ticker,
+                sl_activation_pct=value
+            )
+            
+            await update.message.reply_text(
+                f"✅ Активация Stop Loss для <b>{ticker}</b> обновлена: <b>{value}%</b>\n\n"
+                "Возвращаюсь в меню настроек...",
+                parse_mode='HTML'
+            )
+            
+            # Отправляем новое сообщение с меню
+            keyboard = [
+                [InlineKeyboardButton(f"📈 {ticker}", callback_data=f"instrument_{ticker}")],
+                [InlineKeyboardButton("📈 Настройки инструментов", callback_data="instrument_list")],
+                [InlineKeyboardButton("◀️ Главное меню", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "⚙️ Выберите действие:",
+                reply_markup=reply_markup
+            )
+            
+            return MAIN_MENU
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 0.2):"
+            )
+            return EDIT_INSTRUMENT_SL_ACTIVATION
+    
+    async def edit_instrument_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ticker: str):
+        """Начать редактирование активации Take Profit для инструмента"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Получить эффективные настройки
+        effective = await self.settings_manager.get_effective_settings(
+            active_account.account_id,
+            ticker
+        )
+        
+        # Получить настройки инструмента
+        inst_settings = await self.settings_manager.get_instrument_settings(
+            active_account.account_id,
+            ticker
+        )
+        
+        current_tp_activation = effective['tp_activation_pct']
+        source = "свои" if inst_settings and inst_settings.tp_activation_pct is not None else "глобальные"
+        
+        keyboard = [
+            [InlineKeyboardButton("❌ Отключить активацию", callback_data=f"disable_inst_tp_activation_{ticker}")],
+            [InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_tp_activation_{ticker}")],
+            [InlineKeyboardButton("❌ Отмена", callback_data=f"instrument_{ticker}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        text = (
+            f"🔔 <b>Изменить активацию Take Profit для {ticker}</b>\n\n"
+            f"Текущее значение: <b>{current_tp_activation if current_tp_activation is not None else 'не задана'}</b> ({source})\n\n"
+            "Введите новое значение в процентах:\n"
+            "Примеры: <code>0.5</code>, <code>0.7</code>\n\n"
+            "Диапазон: 0.1% - 10%\n\n"
+            "<i>Активация TP - это процент от средней цены, при достижении которого будет выставлен ордер TP.</i>\n"
+            "<i>Например, если TP=1.0%, а активация=0.5%, то ордер TP будет выставлен только когда цена вырастет на 0.5%.</i>"
+        )
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        
+        # Сохранить контекст
+        context.user_data['editing'] = 'instrument_tp_activation'
+        context.user_data['ticker'] = ticker
+        
+        return EDIT_INSTRUMENT_TP_ACTIVATION
+    
+    async def disable_instrument_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ticker: str):
+        """Отключить активацию Take Profit для инструмента"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Обновить настройки
+        await self.settings_manager.update_instrument_settings(
+            active_account.account_id,
+            ticker,
+            tp_activation_pct=0  # Явно задаем 0, чтобы отличать от NULL (глобальные)
+        )
+        
+        await query.answer("✅ Активация TP отключена для инструмента", show_alert=True)
+        
+        # Вернуться в меню настроек инструмента
+        return await self.show_instrument_settings(update, context, ticker)
+    
+    async def reset_instrument_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ticker: str):
+        """Сбросить активацию Take Profit для инструмента на глобальные"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получить активный аккаунт
+        active_account = await self.db.get_active_account()
+        if not active_account:
+            await query.edit_message_text("❌ Активный аккаунт не найден")
+            return ConversationHandler.END
+        
+        # Обновить настройки
+        await self.settings_manager.update_instrument_settings(
+            active_account.account_id,
+            ticker,
+            tp_activation_pct=None  # NULL = использовать глобальные
+        )
+        
+        await query.answer("✅ Активация TP сброшена на глобальные", show_alert=True)
+        
+        # Вернуться в меню настроек инструмента
+        return await self.show_instrument_settings(update, context, ticker)
+    
+    async def save_instrument_tp_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Сохранить новое значение активации Take Profit для инструмента"""
+        try:
+            # Парсинг значения
+            value = float(update.message.text.strip().replace(',', '.'))
+            
+            # Валидация
+            if value < 0.1 or value > 10:
+                await update.message.reply_text(
+                    "❌ Значение должно быть от 0.1% до 10%\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_INSTRUMENT_TP_ACTIVATION
+            
+            # Получить тикер из контекста
+            ticker = context.user_data.get('ticker')
+            if not ticker:
+                await update.message.reply_text("❌ Ошибка: тикер не найден")
+                return ConversationHandler.END
+            
+            # Получить активный аккаунт
+            active_account = await self.db.get_active_account()
+            if not active_account:
+                await update.message.reply_text("❌ Активный аккаунт не найден")
+                return ConversationHandler.END
+            
+            # Получить текущие настройки для валидации
+            effective = await self.settings_manager.get_effective_settings(
+                active_account.account_id,
+                ticker
+            )
+            tp_pct = effective['take_profit_pct']
+            
+            # Валидация с TP
+            valid, error = self.settings_manager.validate_activation_settings(
+                sl_pct=0,
+                sl_activation_pct=None,
+                tp_pct=tp_pct,
+                tp_activation_pct=value
+            )
+            
+            if not valid:
+                await update.message.reply_text(
+                    f"❌ Ошибка валидации: {error}\n"
+                    "Попробуйте еще раз:"
+                )
+                return EDIT_INSTRUMENT_TP_ACTIVATION
+            
+            # Обновить настройки
+            await self.settings_manager.update_instrument_settings(
+                active_account.account_id,
+                ticker,
+                tp_activation_pct=value
+            )
+            
+            await update.message.reply_text(
+                f"✅ Активация Take Profit для <b>{ticker}</b> обновлена: <b>{value}%</b>\n\n"
+                "Возвращаюсь в меню настроек...",
+                parse_mode='HTML'
+            )
+            
+            # Отправляем новое сообщение с меню
+            keyboard = [
+                [InlineKeyboardButton(f"📈 {ticker}", callback_data=f"instrument_{ticker}")],
+                [InlineKeyboardButton("📈 Настройки инструментов", callback_data="instrument_list")],
+                [InlineKeyboardButton("◀️ Главное меню", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "⚙️ Выберите действие:",
+                reply_markup=reply_markup
+            )
+            
+            return MAIN_MENU
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Неверный формат. Введите число (например: 0.5):"
+            )
+            return EDIT_INSTRUMENT_TP_ACTIVATION
+    
     # ==================== ОБНОВЛЕННЫЕ ОБРАБОТЧИКИ CALLBACK ====================
     
     async def handle_callback_full(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -980,6 +1658,19 @@ class SettingsMenu:
         
         elif data == "edit_global_tp":
             return await self.edit_global_tp(update, context)
+        
+        # Активация SL/TP для глобальных настроек
+        elif data == "edit_global_sl_activation":
+            return await self.edit_global_sl_activation(update, context)
+        
+        elif data == "disable_global_sl_activation":
+            return await self.disable_global_sl_activation(update, context)
+        
+        elif data == "edit_global_tp_activation":
+            return await self.edit_global_tp_activation(update, context)
+        
+        elif data == "disable_global_tp_activation":
+            return await self.disable_global_tp_activation(update, context)
         
         # Multi-TP для глобальных настроек
         elif data == "global_multi_tp":
@@ -1050,16 +1741,41 @@ class SettingsMenu:
             return await self.show_instrument_settings(update, context, ticker)
         
         # Редактирование SL/TP для инструмента
-        elif data.startswith("edit_inst_sl_"):
+        elif data.startswith("edit_inst_sl_") and not data.startswith("edit_inst_sl_activation_"):
             ticker = data.replace("edit_inst_sl_", "")
             return await self.edit_instrument_sl(update, context, ticker)
         
-        elif data.startswith("edit_inst_tp_"):
+        elif data.startswith("edit_inst_tp_") and not data.startswith("edit_inst_tp_activation_"):
             ticker = data.replace("edit_inst_tp_", "")
             return await self.edit_instrument_tp(update, context, ticker)
         
+        # Активация SL/TP для инструмента
+        elif data.startswith("edit_inst_sl_activation_"):
+            ticker = data.replace("edit_inst_sl_activation_", "")
+            return await self.edit_instrument_sl_activation(update, context, ticker)
+        
+        elif data.startswith("disable_inst_sl_activation_"):
+            ticker = data.replace("disable_inst_sl_activation_", "")
+            return await self.disable_instrument_sl_activation(update, context, ticker)
+        
+        elif data.startswith("reset_inst_sl_activation_"):
+            ticker = data.replace("reset_inst_sl_activation_", "")
+            return await self.reset_instrument_sl_activation(update, context, ticker)
+        
+        elif data.startswith("edit_inst_tp_activation_"):
+            ticker = data.replace("edit_inst_tp_activation_", "")
+            return await self.edit_instrument_tp_activation(update, context, ticker)
+        
+        elif data.startswith("disable_inst_tp_activation_"):
+            ticker = data.replace("disable_inst_tp_activation_", "")
+            return await self.disable_instrument_tp_activation(update, context, ticker)
+        
+        elif data.startswith("reset_inst_tp_activation_"):
+            ticker = data.replace("reset_inst_tp_activation_", "")
+            return await self.reset_instrument_tp_activation(update, context, ticker)
+        
         # Сброс настроек инструмента
-        elif data.startswith("reset_inst_"):
+        elif data.startswith("reset_inst_") and not data.startswith("reset_inst_sl_activation_") and not data.startswith("reset_inst_tp_activation_"):
             ticker = data.replace("reset_inst_", "")
             return await self.reset_instrument_settings(update, context, ticker)
         

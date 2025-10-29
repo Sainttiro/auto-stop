@@ -60,6 +60,7 @@ class RiskCalculator:
         """
         # Приоритет: БД > YAML > defaults
         effective_settings = None
+        db_settings = None
         
         # Попытка получить настройки из БД
         if self.settings_manager and account_id:
@@ -70,10 +71,18 @@ class RiskCalculator:
                     effective_settings = type('Settings', (), {
                         'stop_loss_pct': db_settings.get('stop_loss_pct'),
                         'take_profit_pct': db_settings.get('take_profit_pct'),
+                        'sl_activation_pct': db_settings.get('sl_activation_pct'),
+                        'tp_activation_pct': db_settings.get('tp_activation_pct'),
                         'stop_loss_steps': None,
                         'take_profit_steps': None
                     })()
-                    logger.debug(f"Используются настройки из БД для {ticker}: SL={db_settings.get('stop_loss_pct')}%, TP={db_settings.get('take_profit_pct')}%")
+                    logger.debug(
+                        f"Используются настройки из БД для {ticker}: "
+                        f"SL={db_settings.get('stop_loss_pct')}%, "
+                        f"TP={db_settings.get('take_profit_pct')}%, "
+                        f"SL-активация={db_settings.get('sl_activation_pct')}%, "
+                        f"TP-активация={db_settings.get('tp_activation_pct')}%"
+                    )
             except Exception as e:
                 logger.warning(f"Ошибка при получении настроек из БД для {ticker}: {e}, используем fallback")
         
@@ -305,6 +314,73 @@ class RiskCalculator:
         )
         
         return result
+    
+    async def calculate_activation_prices(
+        self,
+        figi: str,
+        ticker: str,
+        instrument_type: str,
+        avg_price: Decimal,
+        direction: str,
+        sl_activation_pct: Optional[float],
+        tp_activation_pct: Optional[float]
+    ) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+        """
+        Расчет цен активации для SL и TP
+        
+        Args:
+            figi: FIGI инструмента
+            ticker: Тикер инструмента
+            instrument_type: Тип инструмента ("stock" или "futures")
+            avg_price: Средняя цена позиции
+            direction: Направление позиции ("LONG" или "SHORT")
+            sl_activation_pct: Процент активации стоп-лосса
+            tp_activation_pct: Процент активации тейк-профита
+            
+        Returns:
+            Tuple[Optional[Decimal], Optional[Decimal]]: (цена_активации_SL, цена_активации_TP)
+        """
+        # Получаем шаг цены инструмента
+        min_price_increment, _ = await self.instrument_cache.get_price_step(figi)
+        
+        sl_activation_price = None
+        tp_activation_price = None
+        
+        # Расчет цены активации SL
+        if sl_activation_pct is not None:
+            if direction == "LONG":
+                # Для LONG: цена активации SL = средняя_цена * (1 - sl_activation_pct / 100)
+                sl_activation_price = avg_price * (1 - Decimal(str(sl_activation_pct)) / 100)
+            else:  # SHORT
+                # Для SHORT: цена активации SL = средняя_цена * (1 + sl_activation_pct / 100)
+                sl_activation_price = avg_price * (1 + Decimal(str(sl_activation_pct)) / 100)
+            
+            # Округляем до минимального шага цены
+            sl_activation_price = round_to_step(sl_activation_price, min_price_increment)
+            
+            logger.debug(
+                f"Рассчитана цена активации SL для {ticker}: "
+                f"{sl_activation_price} ({sl_activation_pct}%)"
+            )
+        
+        # Расчет цены активации TP
+        if tp_activation_pct is not None:
+            if direction == "LONG":
+                # Для LONG: цена активации TP = средняя_цена * (1 + tp_activation_pct / 100)
+                tp_activation_price = avg_price * (1 + Decimal(str(tp_activation_pct)) / 100)
+            else:  # SHORT
+                # Для SHORT: цена активации TP = средняя_цена * (1 - tp_activation_pct / 100)
+                tp_activation_price = avg_price * (1 - Decimal(str(tp_activation_pct)) / 100)
+            
+            # Округляем до минимального шага цены
+            tp_activation_price = round_to_step(tp_activation_price, min_price_increment)
+            
+            logger.debug(
+                f"Рассчитана цена активации TP для {ticker}: "
+                f"{tp_activation_price} ({tp_activation_pct}%)"
+            )
+        
+        return sl_activation_price, tp_activation_price
     
     async def recalculate_on_partial_close(
         self,

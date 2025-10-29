@@ -55,6 +55,8 @@ class SettingsManager:
         account_id: str,
         stop_loss_pct: float = 0.4,
         take_profit_pct: float = 1.0,
+        sl_activation_pct: Optional[float] = None,
+        tp_activation_pct: Optional[float] = None,
         multi_tp_enabled: bool = False,
         multi_tp_levels: Optional[List[Dict]] = None,
         multi_tp_sl_strategy: str = "fixed"
@@ -66,6 +68,8 @@ class SettingsManager:
             account_id: ID аккаунта
             stop_loss_pct: Процент стоп-лосса
             take_profit_pct: Процент тейк-профита
+            sl_activation_pct: Процент активации стоп-лосса (опционально)
+            tp_activation_pct: Процент активации тейк-профита (опционально)
             multi_tp_enabled: Включен ли Multi-TP
             multi_tp_levels: Уровни Multi-TP
             multi_tp_sl_strategy: Стратегия SL ("fixed" или "custom")
@@ -78,6 +82,8 @@ class SettingsManager:
                 account_id=account_id,
                 stop_loss_pct=stop_loss_pct,
                 take_profit_pct=take_profit_pct,
+                sl_activation_pct=sl_activation_pct,
+                tp_activation_pct=tp_activation_pct,
                 multi_tp_enabled=multi_tp_enabled,
                 multi_tp_levels=json.dumps(multi_tp_levels) if multi_tp_levels else None,
                 multi_tp_sl_strategy=multi_tp_sl_strategy
@@ -312,6 +318,8 @@ class SettingsManager:
         defaults = {
             'stop_loss_pct': 0.4,
             'take_profit_pct': 1.0,
+            'sl_activation_pct': None,
+            'tp_activation_pct': None,
             'multi_tp_enabled': False,
             'multi_tp_levels': [],
             'multi_tp_sl_strategy': 'fixed',
@@ -322,6 +330,8 @@ class SettingsManager:
         if global_settings:
             defaults['stop_loss_pct'] = global_settings.stop_loss_pct
             defaults['take_profit_pct'] = global_settings.take_profit_pct
+            defaults['sl_activation_pct'] = global_settings.sl_activation_pct
+            defaults['tp_activation_pct'] = global_settings.tp_activation_pct
             defaults['multi_tp_enabled'] = global_settings.multi_tp_enabled
             defaults['multi_tp_levels'] = (
                 json.loads(global_settings.multi_tp_levels)
@@ -341,6 +351,14 @@ class SettingsManager:
                 defaults['take_profit_pct'] = instrument_settings.take_profit_pct
                 defaults['source'] = 'instrument'
             
+            if instrument_settings.sl_activation_pct is not None:
+                defaults['sl_activation_pct'] = instrument_settings.sl_activation_pct
+                defaults['source'] = 'instrument'
+            
+            if instrument_settings.tp_activation_pct is not None:
+                defaults['tp_activation_pct'] = instrument_settings.tp_activation_pct
+                defaults['source'] = 'instrument'
+            
             if instrument_settings.multi_tp_enabled is not None:
                 defaults['multi_tp_enabled'] = instrument_settings.multi_tp_enabled
                 defaults['source'] = 'instrument'
@@ -356,12 +374,68 @@ class SettingsManager:
         logger.debug(
             f"Эффективные настройки для {ticker}: "
             f"SL={defaults['stop_loss_pct']}%, TP={defaults['take_profit_pct']}%, "
+            f"SL-активация={defaults['sl_activation_pct']}%, TP-активация={defaults['tp_activation_pct']}%, "
             f"Multi-TP={defaults['multi_tp_enabled']}, source={defaults['source']}"
         )
         
         return defaults
     
     # ==================== ВАЛИДАЦИЯ ====================
+    
+    def validate_activation_settings(
+        self,
+        sl_pct: float,
+        sl_activation_pct: Optional[float],
+        tp_pct: float,
+        tp_activation_pct: Optional[float],
+        direction: str = "LONG"
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Валидация настроек активации
+        
+        Args:
+            sl_pct: Процент стоп-лосса
+            sl_activation_pct: Процент активации стоп-лосса
+            tp_pct: Процент тейк-профита
+            tp_activation_pct: Процент активации тейк-профита
+            direction: Направление позиции ("LONG" или "SHORT")
+            
+        Returns:
+            (valid, error_message)
+        """
+        # Если активация не задана, то всё валидно
+        if sl_activation_pct is None and tp_activation_pct is None:
+            return True, None
+        
+        # Проверка активации SL
+        if sl_activation_pct is not None:
+            if sl_activation_pct <= 0:
+                return False, "Активация SL должна быть больше 0%"
+            
+            if direction == "LONG":
+                # Для LONG: активация должна быть меньше SL
+                if sl_activation_pct >= sl_pct:
+                    return False, f"Активация SL ({sl_activation_pct}%) должна быть меньше SL ({sl_pct}%)"
+            else:  # SHORT
+                # Для SHORT: активация должна быть меньше SL
+                if sl_activation_pct >= sl_pct:
+                    return False, f"Активация SL ({sl_activation_pct}%) должна быть меньше SL ({sl_pct}%)"
+        
+        # Проверка активации TP
+        if tp_activation_pct is not None:
+            if tp_activation_pct <= 0:
+                return False, "Активация TP должна быть больше 0%"
+            
+            if direction == "LONG":
+                # Для LONG: активация должна быть меньше TP
+                if tp_activation_pct >= tp_pct:
+                    return False, f"Активация TP ({tp_activation_pct}%) должна быть меньше TP ({tp_pct}%)"
+            else:  # SHORT
+                # Для SHORT: активация должна быть меньше TP
+                if tp_activation_pct >= tp_pct:
+                    return False, f"Активация TP ({tp_activation_pct}%) должна быть меньше TP ({tp_pct}%)"
+        
+        return True, None
     
     def validate_multi_tp_levels(self, levels: List[Dict]) -> tuple[bool, Optional[str]]:
         """

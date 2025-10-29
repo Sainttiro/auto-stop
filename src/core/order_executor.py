@@ -14,6 +14,8 @@ from tinkoff.invest import (
     Quotation
 )
 
+from src.config.settings_manager import SettingsManager
+
 from src.api.client import TinkoffAPIClient
 from src.api.instrument_info import InstrumentInfoCache
 from src.storage.database import Database
@@ -29,7 +31,14 @@ class OrderExecutor:
     Выставление и управление ордерами
     """
     
-    def __init__(self, api_client: TinkoffAPIClient, database: Database, instrument_cache: InstrumentInfoCache):
+    def __init__(
+        self, 
+        api_client: TinkoffAPIClient, 
+        database: Database, 
+        instrument_cache: InstrumentInfoCache,
+        settings_manager: Optional[SettingsManager] = None,
+        stream_handler = None  # Будет установлен позже для избежания циклических зависимостей
+    ):
         """
         Инициализация исполнителя ордеров
         
@@ -37,11 +46,24 @@ class OrderExecutor:
             api_client: Клиент API Tinkoff
             database: Объект для работы с базой данных
             instrument_cache: Кэш информации об инструментах
+            settings_manager: Менеджер настроек
+            stream_handler: Обработчик потоков (устанавливается позже)
         """
         self.api_client = api_client
         self.db = database
         self.instrument_cache = instrument_cache
+        self.settings_manager = settings_manager
+        self.stream_handler = stream_handler
         self._lock = asyncio.Lock()
+    
+    def set_stream_handler(self, stream_handler):
+        """
+        Установка обработчика потоков
+        
+        Args:
+            stream_handler: Обработчик потоков
+        """
+        self.stream_handler = stream_handler
     
     async def place_stop_loss_order(
         self,
@@ -467,6 +489,121 @@ class OrderExecutor:
         
         return cancelled_count
     
+    async def check_activation_settings(
+        self,
+        position: Position,
+        account_id: str
+    ) -> Tuple[bool, Optional[float], Optional[float]]:
+        """
+        Проверка настроек активации для позиции
+        
+        Args:
+            position: Позиция
+            account_id: ID аккаунта
+            
+        Returns:
+            Tuple[bool, Optional[float], Optional[float]]: (нужно_ли_ждать_активации, sl_activation_pct, tp_activation_pct)
+        """
+        if not self.settings_manager:
+            return False, None, None
+        
+        # Получаем настройки для инструмента
+        settings = await self.settings_manager.get_effective_settings(account_id, position.ticker)
+        
+        # Проверяем наличие настроек активации
+        sl_activation_pct = settings.get('sl_activation_pct')
+        tp_activation_pct = settings.get('tp_activation_pct')
+        
+        # Если хотя бы одна из настроек активации задана, нужно ждать активации
+        need_activation = sl_activation_pct is not None or tp_activation_pct is not None
+        
+        return need_activation, sl_activation_pct, tp_activation_pct
+    
+    async def add_to_pending_activation(
+        self,
+        position: Position,
+        sl_activation_pct: Optional[float],
+        tp_activation_pct: Optional[float]
+    ) -> bool:
+        """
+        Добавление позиции в список ожидающих активации
+        
+        Args:
+            position: Позиция
+            sl_activation_pct: Процент активации стоп-лосса
+            tp_activation_pct: Процент активации тейк-профита
+            
+        Returns:
+            bool: True, если позиция успешно добавлена
+        """
+        if not self.stream_handler:
+            logger.error("Stream handler не установлен, невозможно добавить позицию в список ожидающих активации")
+            return False
+        
+        # Рассчитываем цены активации
+        sl_activation_price = None
+        tp_activation_price = None
+        
+        if sl_activation_pct is not None or tp_activation_pct is not None:
+            # Получаем цены активации
+            from src.utils.converters import round_to_step
+            
+            avg_price = Decimal(str(position.average_price))
+            min_price_increment, _ = await self.instrument_cache.get_price_step(position.figi)
+            
+            if sl_activation_pct is not None:
+                if position.direction == "LONG":
+                    # Для LONG: цена активации SL = средняя_цена * (1 - sl_activation_pct / 100)
+                    sl_activation_price = avg_price * (1 - Decimal(str(sl_activation_pct)) / 100)
+                else:  # SHORT
+                    # Для SHORT: цена активации SL = средняя_цена * (1 + sl_activation_pct / 100)
+                    sl_activation_price = avg_price * (1 + Decimal(str(sl_activation_pct)) / 100)
+                
+                # Округляем до минимального шага цены
+                sl_activation_price = round_to_step(sl_activation_price, min_price_increment)
+            
+            if tp_activation_pct is not None:
+                if position.direction == "LONG":
+                    # Для LONG: цена активации TP = средняя_цена * (1 + tp_activation_pct / 100)
+                    tp_activation_price = avg_price * (1 + Decimal(str(tp_activation_pct)) / 100)
+                else:  # SHORT
+                    # Для SHORT: цена активации TP = средняя_цена * (1 - tp_activation_pct / 100)
+                    tp_activation_price = avg_price * (1 - Decimal(str(tp_activation_pct)) / 100)
+                
+                # Округляем до минимального шага цены
+                tp_activation_price = round_to_step(tp_activation_price, min_price_increment)
+        
+        # Добавляем в список ожидающих активации
+        self.stream_handler._pending_activations[position.figi] = {
+            'position_id': position.id,
+            'sl_activation_price': float(sl_activation_price) if sl_activation_price else None,
+            'tp_activation_price': float(tp_activation_price) if tp_activation_price else None,
+            'sl_activated': False,
+            'tp_activated': False
+        }
+        
+        logger.info(
+            f"Позиция {position.ticker} добавлена в список ожидающих активации: "
+            f"SL активация={sl_activation_price if sl_activation_price else 'Нет'}, "
+            f"TP активация={tp_activation_price if tp_activation_price else 'Нет'}"
+        )
+        
+        # Логируем событие
+        await self.db.log_event(
+            event_type="ACTIVATION_PENDING",
+            account_id=position.account_id,
+            figi=position.figi,
+            ticker=position.ticker,
+            description=f"Позиция {position.ticker} добавлена в список ожидающих активации",
+            details={
+                "sl_activation_price": float(sl_activation_price) if sl_activation_price else None,
+                "tp_activation_price": float(tp_activation_price) if tp_activation_price else None,
+                "position_id": position.id
+            }
+        )
+        
+        return True
+    
     async def place_sl_tp_orders(
         self,
         position: Position,
@@ -490,7 +627,24 @@ class OrderExecutor:
             # Отменяем существующие ордера
             await self.cancel_all_position_orders(position.id)
             
-            # Выставляем новые ордера
+            # Проверяем настройки активации
+            need_activation, sl_activation_pct, tp_activation_pct = await self.check_activation_settings(
+                position=position,
+                account_id=position.account_id
+            )
+            
+            # Если нужно ждать активации, добавляем в список ожидающих
+            if need_activation:
+                await self.add_to_pending_activation(
+                    position=position,
+                    sl_activation_pct=sl_activation_pct,
+                    tp_activation_pct=tp_activation_pct
+                )
+                
+                # Возвращаем None, так как ордера будут выставлены позже
+                return None, None
+            
+            # Если не нужно ждать активации, выставляем ордера сразу
             sl_order = await self.place_stop_loss_order(position, sl_price, sl_pct)
             tp_order = await self.place_take_profit_order(position, tp_price)
             
@@ -517,6 +671,24 @@ class OrderExecutor:
             # Отменяем существующие ордера
             await self.cancel_all_position_orders(position.id)
             
+            # Проверяем настройки активации
+            need_activation, sl_activation_pct, tp_activation_pct = await self.check_activation_settings(
+                position=position,
+                account_id=position.account_id
+            )
+            
+            # Если нужно ждать активации, добавляем в список ожидающих
+            if need_activation:
+                await self.add_to_pending_activation(
+                    position=position,
+                    sl_activation_pct=sl_activation_pct,
+                    tp_activation_pct=tp_activation_pct
+                )
+                
+                # Возвращаем None, так как ордера будут выставлены позже
+                return None, []
+            
+            # Если не нужно ждать активации, выставляем ордера сразу
             # Выставляем стоп-лосс
             sl_order = await self.place_stop_loss_order(position, sl_price)
             
