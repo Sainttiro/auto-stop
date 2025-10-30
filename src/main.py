@@ -182,7 +182,8 @@ class AutoStopSystem:
                 order_executor=self.order_executor,
                 config=self.config,
                 instruments_config=self.instruments_config,
-                instrument_cache=self.instrument_cache
+                instrument_cache=self.instrument_cache,
+                settings_manager=self.settings_manager
             )
             
             logger.info("Система инициализирована успешно")
@@ -343,7 +344,8 @@ class AutoStopSystem:
                 order_executor=self.order_executor,
                 config=self.config,
                 instruments_config=self.instruments_config,
-                instrument_cache=self.instrument_cache
+                instrument_cache=self.instrument_cache,
+                settings_manager=self.settings_manager
             )
             
             # 8. Запустить stream handler с новым account_id

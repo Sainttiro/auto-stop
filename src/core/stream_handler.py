@@ -21,6 +21,7 @@ from src.core.order_executor import OrderExecutor
 from src.storage.database import Database
 from src.storage.models import Position, Order, Trade
 from src.config.settings import InstrumentsConfig, Config
+from src.config.settings_manager import SettingsManager
 from src.utils.converters import quotation_to_decimal, money_value_to_decimal
 from src.utils.logger import get_logger
 
@@ -41,7 +42,8 @@ class StreamHandler:
         order_executor: OrderExecutor,
         config: Config,
         instruments_config: InstrumentsConfig,
-        instrument_cache: InstrumentInfoCache
+        instrument_cache: InstrumentInfoCache,
+        settings_manager: SettingsManager
     ):
         """
         Инициализация обработчика потоков
@@ -64,6 +66,7 @@ class StreamHandler:
         self.config = config
         self.instruments_config = instruments_config
         self.instrument_cache = instrument_cache
+        self.settings_manager = settings_manager
         
         # Флаги для управления потоками
         self._running = False
@@ -423,12 +426,27 @@ class StreamHandler:
             use_multi_tp = False
             multi_tp_levels = []
             
-            if instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
+            # Сначала проверяем настройки из БД (имеют высший приоритет)
+            effective_settings = await self.settings_manager.get_effective_settings(
+                account_id=account_id,
+                ticker=ticker
+            )
+            
+            if effective_settings['multi_tp_enabled']:
+                use_multi_tp = True
+                # Получаем уровни из БД
+                if effective_settings['multi_tp_levels']:
+                    multi_tp_levels = [(level['level_pct'], level['volume_pct']) for level in effective_settings['multi_tp_levels']]
+                    logger.debug(f"Используются уровни Multi-TP из БД для {ticker}: {len(multi_tp_levels)} уровней")
+            # Если в БД не включен Multi-TP, проверяем настройки из YAML
+            elif instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
                 use_multi_tp = True
                 multi_tp_levels = [(level.level_pct, level.volume_pct) for level in instrument_settings.multi_tp.levels]
+                logger.debug(f"Используются уровни Multi-TP из настроек инструмента для {ticker}")
             elif self.config.multi_take_profit.enabled:
                 use_multi_tp = True
                 multi_tp_levels = [(level.level_pct, level.volume_pct) for level in self.config.multi_take_profit.levels]
+                logger.debug(f"Используются уровни Multi-TP из глобальных настроек для {ticker}")
             
             logger.info(f"Режим TP для {ticker}: {'многоуровневый' if use_multi_tp else 'обычный'}")
             
@@ -809,12 +827,27 @@ class StreamHandler:
                 use_multi_tp = False
                 multi_tp_levels = []
                 
-                if instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
+                # Сначала проверяем настройки из БД (имеют высший приоритет)
+                effective_settings = await self.settings_manager.get_effective_settings(
+                    account_id=account_id,
+                    ticker=ticker
+                )
+                
+                if effective_settings['multi_tp_enabled']:
+                    use_multi_tp = True
+                    # Получаем уровни из БД
+                    if effective_settings['multi_tp_levels']:
+                        multi_tp_levels = [(level['level_pct'], level['volume_pct']) for level in effective_settings['multi_tp_levels']]
+                        logger.debug(f"Используются уровни Multi-TP из БД для {ticker}: {len(multi_tp_levels)} уровней")
+                # Если в БД не включен Multi-TP, проверяем настройки из YAML
+                elif instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
                     use_multi_tp = True
                     multi_tp_levels = [(level.level_pct, level.volume_pct) for level in instrument_settings.multi_tp.levels]
+                    logger.debug(f"Используются уровни Multi-TP из настроек инструмента для {ticker}")
                 elif self.config.multi_take_profit.enabled:
                     use_multi_tp = True
                     multi_tp_levels = [(level.level_pct, level.volume_pct) for level in self.config.multi_take_profit.levels]
+                    logger.debug(f"Используются уровни Multi-TP из глобальных настроек для {ticker}")
                 
                 logger.info(f"Режим TP для {ticker}: {'многоуровневый' if use_multi_tp else 'обычный'}")
                 
