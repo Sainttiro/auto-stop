@@ -3,11 +3,10 @@ Telegram Bot для управления системой Auto-Stop
 """
 
 import asyncio
-import os
 from typing import Optional
-from datetime import datetime, timedelta, timezone
-from telegram import Update, Bot, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes
+from datetime import datetime
+from telegram import Bot, BotCommand
+from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 
 from src.storage.database import Database
 from src.core.position_manager import PositionManager
@@ -16,6 +15,10 @@ from src.analytics.statistics import StatisticsCalculator
 from src.analytics.reports import ReportFormatter
 from src.config.settings_manager import SettingsManager
 from src.bot.settings_menu import SettingsMenu
+from src.bot.handlers.system import SystemHandler
+from src.bot.handlers.positions import PositionsHandler
+from src.bot.handlers.statistics import StatisticsHandler
+from src.bot.handlers.accounts import AccountsHandler
 from src.utils.logger import get_logger
 
 logger = get_logger("bot")
@@ -71,6 +74,12 @@ class TelegramBot:
             database=database,
             chat_id=chat_id
         )
+        
+        # Инициализация обработчиков команд
+        self.system_handler = SystemHandler(self)
+        self.positions_handler = PositionsHandler(self)
+        self.statistics_handler = StatisticsHandler(self)
+        self.accounts_handler = AccountsHandler(self)
     
     async def start(self):
         """Запуск бота"""
@@ -84,26 +93,31 @@ class TelegramBot:
             self.bot = self.application.bot
             
             # Регистрация обработчиков команд
-            self.application.add_handler(CommandHandler("start", self.cmd_start))
-            self.application.add_handler(CommandHandler("stop", self.cmd_stop_system))
-            self.application.add_handler(CommandHandler("help", self.cmd_help))
-            self.application.add_handler(CommandHandler("status", self.cmd_status))
-            self.application.add_handler(CommandHandler("positions", self.cmd_positions))
-            self.application.add_handler(CommandHandler("stats", self.cmd_stats))
-            self.application.add_handler(CommandHandler("stats_detailed", self.cmd_stats_detailed))
-            self.application.add_handler(CommandHandler("stats_instrument", self.cmd_stats_instrument))
-            self.application.add_handler(CommandHandler("logs", self.cmd_logs))
-            self.application.add_handler(CommandHandler("set_token", self.cmd_set_token))
+            
+            # Системные команды
+            self.application.add_handler(CommandHandler("start", self.system_handler.cmd_start))
+            self.application.add_handler(CommandHandler("stop", self.system_handler.cmd_stop_system))
+            self.application.add_handler(CommandHandler("help", self.system_handler.cmd_help))
+            self.application.add_handler(CommandHandler("status", self.system_handler.cmd_status))
+            self.application.add_handler(CommandHandler("logs", self.system_handler.cmd_logs))
+            self.application.add_handler(CommandHandler("set_token", self.system_handler.cmd_set_token))
+            
+            # Команды для работы с позициями
+            self.application.add_handler(CommandHandler("positions", self.positions_handler.cmd_positions))
+            
+            # Команды для работы со статистикой
+            self.application.add_handler(CommandHandler("stats", self.statistics_handler.cmd_stats))
+            self.application.add_handler(CommandHandler("stats_detailed", self.statistics_handler.cmd_stats_detailed))
+            self.application.add_handler(CommandHandler("stats_instrument", self.statistics_handler.cmd_stats_instrument))
             
             # Команды управления аккаунтами
-            self.application.add_handler(CommandHandler("accounts", self.cmd_accounts))
-            self.application.add_handler(CommandHandler("add_account", self.cmd_add_account))
-            self.application.add_handler(CommandHandler("switch_account", self.cmd_switch_account))
-            self.application.add_handler(CommandHandler("current_account", self.cmd_current_account))
-            self.application.add_handler(CommandHandler("remove_account", self.cmd_remove_account))
+            self.application.add_handler(CommandHandler("accounts", self.accounts_handler.cmd_accounts))
+            self.application.add_handler(CommandHandler("add_account", self.accounts_handler.cmd_add_account))
+            self.application.add_handler(CommandHandler("switch_account", self.accounts_handler.cmd_switch_account))
+            self.application.add_handler(CommandHandler("current_account", self.accounts_handler.cmd_current_account))
+            self.application.add_handler(CommandHandler("remove_account", self.accounts_handler.cmd_remove_account))
             
             # ConversationHandler для меню настроек
-            from telegram.ext import ConversationHandler, CallbackQueryHandler, MessageHandler, filters
             from src.bot.settings_menu import (
                 MAIN_MENU, GLOBAL_SETTINGS, INSTRUMENT_LIST, INSTRUMENT_SETTINGS,
                 EDIT_SL, EDIT_TP, MULTI_TP_MENU, ADD_LEVEL, ADD_LEVEL_PRICE, ADD_LEVEL_VOLUME,
