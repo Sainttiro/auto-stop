@@ -1006,10 +1006,27 @@ class StreamHandler:
         # Определяем уровни TP
         multi_tp_levels = []
         
-        if instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
-            multi_tp_levels = [(level.level_pct, level.volume_pct) for level in instrument_settings.multi_tp.levels]
-        elif self.config.multi_take_profit.enabled:
-            multi_tp_levels = [(level.level_pct, level.volume_pct) for level in self.config.multi_take_profit.levels]
+        # Сначала проверяем настройки из БД (имеют высший приоритет)
+        if account_id:
+            effective_settings = await self.settings_manager.get_effective_settings(
+                account_id=account_id,
+                ticker=position.ticker
+            )
+            
+            if effective_settings['multi_tp_enabled'] and effective_settings['multi_tp_levels']:
+                multi_tp_levels = [(level['level_pct'], level['volume_pct']) for level in effective_settings['multi_tp_levels']]
+                logger.debug(f"_calculate_multi_tp_levels: Используются уровни Multi-TP из БД для {position.ticker}: {len(multi_tp_levels)} уровней")
+        
+        # Если в БД нет уровней, проверяем настройки из YAML
+        if not multi_tp_levels:
+            if instrument_settings and instrument_settings.multi_tp and instrument_settings.multi_tp.enabled:
+                multi_tp_levels = [(level.level_pct, level.volume_pct) for level in instrument_settings.multi_tp.levels]
+                logger.debug(f"_calculate_multi_tp_levels: Используются уровни Multi-TP из настроек инструмента для {position.ticker}")
+            elif self.config.multi_take_profit.enabled:
+                multi_tp_levels = [(level.level_pct, level.volume_pct) for level in self.config.multi_take_profit.levels]
+                logger.debug(f"_calculate_multi_tp_levels: Используются уровни Multi-TP из глобальных настроек для {position.ticker}")
+        
+        logger.debug(f"_calculate_multi_tp_levels: Итоговые уровни Multi-TP для {position.ticker}: {multi_tp_levels}")
         
         # Рассчитываем цены уровней
         tp_levels = await self.risk_calculator.calculate_multi_tp_levels(
