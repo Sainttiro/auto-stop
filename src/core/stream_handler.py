@@ -461,12 +461,16 @@ class StreamHandler:
                 )
                 logger.info(f"Рассчитаны уровни: SL={sl_price}, TP уровней={len(tp_levels)}")
                 
+                # Получаем sl_pct для расчета смещения цены исполнения
+                sl_pct = Decimal(str(effective_settings.get('sl_pct', 0.5)))
+                
                 # Выставляем ордера
                 logger.debug(f"Выставление многоуровневых ордеров для {ticker}...")
                 sl_order, tp_orders = await self.order_executor.place_multi_tp_orders(
                     position=position,
                     sl_price=sl_price,
-                    tp_levels=tp_levels
+                    tp_levels=tp_levels,
+                    sl_pct=sl_pct
                 )
                 logger.info(f"Выставлены ордера: SL={'OK' if sl_order else 'FAIL'}, TP={len([o for o in tp_orders if o])} из {len(tp_orders)}")
                 
@@ -862,12 +866,16 @@ class StreamHandler:
                     )
                     logger.info(f"Рассчитаны уровни: SL={sl_price}, TP уровней={len(tp_levels)}")
                     
+                    # Получаем sl_pct для расчета смещения цены исполнения
+                    sl_pct = Decimal(str(effective_settings.get('sl_pct', 0.5)))
+                    
                     # Выставляем ордера
                     logger.debug(f"Выставление многоуровневых ордеров для {ticker}...")
                     sl_order, tp_orders = await self.order_executor.place_multi_tp_orders(
                         position=position,
                         sl_price=sl_price,
-                        tp_levels=tp_levels
+                        tp_levels=tp_levels,
+                        sl_pct=sl_pct
                     )
                     logger.info(f"Выставлены ордера: SL={'OK' if sl_order else 'FAIL'}, TP={len([o for o in tp_orders if o])} из {len(tp_orders)}")
                     

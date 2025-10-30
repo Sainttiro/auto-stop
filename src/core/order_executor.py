@@ -654,7 +654,8 @@ class OrderExecutor:
         self,
         position: Position,
         sl_price: Decimal,
-        tp_levels: List[Tuple[Decimal, float]]
+        tp_levels: List[Tuple[Decimal, float]],
+        sl_pct: Optional[Decimal] = None
     ) -> Tuple[Optional[Order], List[Optional[Order]]]:
         """
         Выставление стоп-лосс и многоуровневых тейк-профит ордеров
@@ -690,7 +691,7 @@ class OrderExecutor:
             
             # Если не нужно ждать активации, выставляем ордера сразу
             # Выставляем стоп-лосс
-            sl_order = await self.place_stop_loss_order(position, sl_price)
+            sl_order = await self.place_stop_loss_order(position, sl_price, sl_pct)
             
             # Выставляем многоуровневые тейк-профиты
             tp_orders = []
