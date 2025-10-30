@@ -453,10 +453,11 @@ class SettingsManager:
         if len(levels) > 10:
             return False, "Максимум 10 уровней"
         
-        # Проверка суммы процентов
-        total_volume = sum(level.get('volume_pct', 0) for level in levels)
-        if abs(total_volume - 100) > 0.01:  # Допуск на погрешность
-            return False, f"Сумма процентов должна быть 100%, сейчас {total_volume}%"
+        # Проверка суммы процентов только если уровней больше одного
+        if len(levels) > 1:
+            total_volume = sum(level.get('volume_pct', 0) for level in levels)
+            if abs(total_volume - 100) > 0.01:  # Допуск на погрешность
+                return False, f"Сумма процентов должна быть 100%, сейчас {total_volume}%"
         
         # Проверка порядка уровней
         prev_level = 0
