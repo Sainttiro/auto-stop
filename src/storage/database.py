@@ -1,5 +1,6 @@
 import os
 import json
+import sqlite3
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Type, TypeVar, Generic
 import asyncio
@@ -603,3 +604,86 @@ class Database:
                 await session.commit()
                 
                 logger.debug(f"Обновлено время использования для аккаунта {account_id}")
+    
+    async def run_migrations(self):
+        """
+        Выполнение необходимых миграций базы данных
+        
+        Автоматически проверяет и применяет миграции при запуске приложения.
+        Текущие миграции:
+        - Добавление полей sl_activation_pct и tp_activation_pct в таблицы global_settings и instrument_settings
+        
+        Returns:
+            bool: True, если миграции выполнены успешно
+        """
+        logger.info("Проверка необходимости миграций базы данных...")
+        
+        try:
+            # Получаем путь к файлу БД из URL
+            db_path = self.db_url.replace("sqlite+aiosqlite:///", "")
+            
+            # Подключение к БД напрямую через sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Проверка существования колонок
+            cursor.execute("PRAGMA table_info(global_settings)")
+            global_columns = [col[1] for col in cursor.fetchall()]
+            
+            cursor.execute("PRAGMA table_info(instrument_settings)")
+            instrument_columns = [col[1] for col in cursor.fetchall()]
+            
+            # Проверяем, нужна ли миграция
+            need_migration = False
+            
+            if "sl_activation_pct" not in global_columns or "tp_activation_pct" not in global_columns:
+                need_migration = True
+                logger.info("Требуется миграция для таблицы global_settings")
+            
+            if "sl_activation_pct" not in instrument_columns or "tp_activation_pct" not in instrument_columns:
+                need_migration = True
+                logger.info("Требуется миграция для таблицы instrument_settings")
+            
+            if not need_migration:
+                logger.info("Миграции не требуются, структура БД актуальна")
+                conn.close()
+                return True
+            
+            # Выполняем миграцию
+            logger.info("Выполнение миграции для добавления полей активации SL/TP...")
+            
+            # Добавление колонок, если они еще не существуют
+            if "sl_activation_pct" not in global_columns:
+                logger.info("Добавление sl_activation_pct в global_settings")
+                cursor.execute("ALTER TABLE global_settings ADD COLUMN sl_activation_pct FLOAT NULL")
+            
+            if "tp_activation_pct" not in global_columns:
+                logger.info("Добавление tp_activation_pct в global_settings")
+                cursor.execute("ALTER TABLE global_settings ADD COLUMN tp_activation_pct FLOAT NULL")
+            
+            if "sl_activation_pct" not in instrument_columns:
+                logger.info("Добавление sl_activation_pct в instrument_settings")
+                cursor.execute("ALTER TABLE instrument_settings ADD COLUMN sl_activation_pct FLOAT NULL")
+            
+            if "tp_activation_pct" not in instrument_columns:
+                logger.info("Добавление tp_activation_pct в instrument_settings")
+                cursor.execute("ALTER TABLE instrument_settings ADD COLUMN tp_activation_pct FLOAT NULL")
+            
+            # Сохранение изменений
+            conn.commit()
+            conn.close()
+            
+            logger.info("✅ Миграция успешно выполнена")
+            
+            # Логируем событие в БД
+            await self.log_event(
+                event_type="MIGRATION",
+                description="Выполнена миграция для добавления полей активации SL/TP",
+                details={"tables": ["global_settings", "instrument_settings"]}
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при выполнении миграции: {e}")
+            return False

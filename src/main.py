@@ -84,6 +84,9 @@ class AutoStopSystem:
             self.database = Database()
             await self.database.create_tables()
             
+            # Выполнение необходимых миграций БД
+            await self.database.run_migrations()
+            
             # ПРИОРИТЕТ: Токен из БД > Токен из .env
             active_account = await self.database.get_active_account()
             
