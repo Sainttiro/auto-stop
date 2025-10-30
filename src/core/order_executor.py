@@ -20,7 +20,7 @@ from src.api.client import TinkoffAPIClient
 from src.api.instrument_info import InstrumentInfoCache
 from src.storage.database import Database
 from src.storage.models import Order, Position
-from src.utils.converters import decimal_to_quotation
+from src.utils.converters import decimal_to_quotation, round_to_step
 from src.utils.logger import get_logger
 
 logger = get_logger("core.order_executor")
