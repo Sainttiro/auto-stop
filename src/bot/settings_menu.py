@@ -1015,10 +1015,16 @@ class SettingsMenu:
         settings = await self.settings_manager.get_global_settings(active_account.account_id)
         current_sl_activation = settings.sl_activation_pct if settings and settings.sl_activation_pct is not None else "не задана"
         
-        keyboard = [
-            [InlineKeyboardButton("❌ Отключить активацию", callback_data="disable_global_sl_activation")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="global_settings")]
-        ]
+        # Формируем клавиатуру в зависимости от текущего состояния
+        keyboard = []
+        
+        # Если активация уже задана, показываем кнопку отключения
+        if settings and settings.sl_activation_pct is not None:
+            keyboard.append([InlineKeyboardButton("❌ Отключить активацию", callback_data="disable_global_sl_activation")])
+        
+        # Добавляем кнопку отмены в любом случае
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="global_settings")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         text = (
@@ -1149,10 +1155,16 @@ class SettingsMenu:
         settings = await self.settings_manager.get_global_settings(active_account.account_id)
         current_tp_activation = settings.tp_activation_pct if settings and settings.tp_activation_pct is not None else "не задана"
         
-        keyboard = [
-            [InlineKeyboardButton("❌ Отключить активацию", callback_data="disable_global_tp_activation")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="global_settings")]
-        ]
+        # Формируем клавиатуру в зависимости от текущего состояния
+        keyboard = []
+        
+        # Если активация уже задана, показываем кнопку отключения
+        if settings and settings.tp_activation_pct is not None:
+            keyboard.append([InlineKeyboardButton("❌ Отключить активацию", callback_data="disable_global_tp_activation")])
+        
+        # Добавляем кнопку отмены в любом случае
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="global_settings")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         text = (
@@ -1295,11 +1307,19 @@ class SettingsMenu:
         current_sl_activation = effective['sl_activation_pct']
         source = "свои" if inst_settings and inst_settings.sl_activation_pct is not None else "глобальные"
         
-        keyboard = [
-            [InlineKeyboardButton("❌ Отключить активацию", callback_data=f"disable_inst_sl_activation_{ticker}")],
-            [InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_sl_activation_{ticker}")],
-            [InlineKeyboardButton("❌ Отмена", callback_data=f"instrument_{ticker}")]
-        ]
+        # Формируем клавиатуру в зависимости от текущего состояния
+        keyboard = []
+        
+        # Если активация уже задана для этого инструмента, показываем кнопку отключения
+        if inst_settings and inst_settings.sl_activation_pct is not None:
+            keyboard.append([InlineKeyboardButton("❌ Отключить активацию", callback_data=f"disable_inst_sl_activation_{ticker}")])
+        
+        # Всегда показываем кнопку сброса на глобальные настройки
+        keyboard.append([InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_sl_activation_{ticker}")])
+        
+        # Добавляем кнопку отмены в любом случае
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data=f"instrument_{ticker}")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         text = (
@@ -1478,11 +1498,19 @@ class SettingsMenu:
         current_tp_activation = effective['tp_activation_pct']
         source = "свои" if inst_settings and inst_settings.tp_activation_pct is not None else "глобальные"
         
-        keyboard = [
-            [InlineKeyboardButton("❌ Отключить активацию", callback_data=f"disable_inst_tp_activation_{ticker}")],
-            [InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_tp_activation_{ticker}")],
-            [InlineKeyboardButton("❌ Отмена", callback_data=f"instrument_{ticker}")]
-        ]
+        # Формируем клавиатуру в зависимости от текущего состояния
+        keyboard = []
+        
+        # Если активация уже задана для этого инструмента, показываем кнопку отключения
+        if inst_settings and inst_settings.tp_activation_pct is not None:
+            keyboard.append([InlineKeyboardButton("❌ Отключить активацию", callback_data=f"disable_inst_tp_activation_{ticker}")])
+        
+        # Всегда показываем кнопку сброса на глобальные настройки
+        keyboard.append([InlineKeyboardButton("🔄 Сбросить на глобальные", callback_data=f"reset_inst_tp_activation_{ticker}")])
+        
+        # Добавляем кнопку отмены в любом случае
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data=f"instrument_{ticker}")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         text = (

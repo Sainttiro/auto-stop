@@ -122,7 +122,8 @@ class TelegramBot:
                 MAIN_MENU, GLOBAL_SETTINGS, INSTRUMENT_LIST, INSTRUMENT_SETTINGS,
                 EDIT_SL, EDIT_TP, MULTI_TP_MENU, ADD_LEVEL, ADD_LEVEL_PRICE, ADD_LEVEL_VOLUME,
                 EDIT_LEVEL, EDIT_LEVEL_PRICE, EDIT_LEVEL_VOLUME, DELETE_LEVEL,
-                SL_STRATEGY, ADD_INSTRUMENT, EDIT_INSTRUMENT_SL, EDIT_INSTRUMENT_TP
+                SL_STRATEGY, ADD_INSTRUMENT, EDIT_INSTRUMENT_SL, EDIT_INSTRUMENT_TP,
+                EDIT_SL_ACTIVATION, EDIT_TP_ACTIVATION, EDIT_INSTRUMENT_SL_ACTIVATION, EDIT_INSTRUMENT_TP_ACTIVATION
             )
             
             settings_conv = ConversationHandler(
@@ -185,6 +186,22 @@ class TelegramBot:
                         CallbackQueryHandler(self.settings_menu.handle_callback_full)
                     ],
                     DELETE_LEVEL: [
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_SL_ACTIVATION: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_global_sl_activation),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_TP_ACTIVATION: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_global_tp_activation),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_INSTRUMENT_SL_ACTIVATION: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_instrument_sl_activation),
+                        CallbackQueryHandler(self.settings_menu.handle_callback_full)
+                    ],
+                    EDIT_INSTRUMENT_TP_ACTIVATION: [
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, self.settings_menu.save_instrument_tp_activation),
                         CallbackQueryHandler(self.settings_menu.handle_callback_full)
                     ],
                 },
