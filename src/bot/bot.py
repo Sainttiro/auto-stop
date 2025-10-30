@@ -4,9 +4,9 @@ Telegram Bot для управления системой Auto-Stop
 
 import asyncio
 from typing import Optional
-from datetime import datetime
-from telegram import Bot, BotCommand
-from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
+from datetime import datetime, timezone
+from telegram import Bot, BotCommand, Update
+from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 from src.storage.database import Database
 from src.core.position_manager import PositionManager
