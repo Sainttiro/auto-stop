@@ -347,6 +347,106 @@ docker compose ps
 4. **Настройте firewall**
 5. **Используйте SSH ключи вместо паролей**
 
+## Разработка и тестирование
+
+### Инструменты разработки
+
+Для разработки и тестирования системы используются следующие инструменты:
+
+```bash
+# Установка инструментов разработки
+pip install -r requirements-dev.txt
+```
+
+#### Линтинг кода (flake8)
+
+```bash
+# Проверка критических ошибок
+flake8 src/ --count --select=E9,F63,F7,F82,F401 --show-source --statistics
+
+# Полная проверка
+flake8 src/ --count --max-complexity=10 --max-line-length=127 --statistics
+```
+
+#### Проверка типов (mypy)
+
+```bash
+# Проверка типов
+mypy src/
+```
+
+#### Запуск тестов
+
+```bash
+# Запуск всех тестов
+pytest tests/ -v
+
+# Запуск с покрытием кода
+pytest tests/ -v --cov=src --cov-report=term-missing
+```
+
+### CI/CD процесс
+
+Система использует GitHub Actions для автоматизации процесса CI/CD:
+
+1. **При каждом push и PR в ветки main, develop, master:**
+   - Запускается линтинг кода (flake8)
+   - Проверяются типы (mypy)
+   - Запускаются тесты (pytest)
+   - Собирается тестовый Docker образ
+
+2. **При создании тега (v*):**
+   - Запускаются все проверки качества кода
+   - Собирается Docker образ
+   - Образ публикуется в GitHub Container Registry
+   - Выполняется деплой на сервер
+
+### Настройка локальной среды разработки
+
+```bash
+# Клонирование репозитория
+git clone https://github.com/yourusername/auto-stop.git
+cd auto-stop
+
+# Установка зависимостей
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Создание .env файла
+cp .env.example .env
+# Отредактируйте .env
+
+# Запуск линтера и тестов
+flake8 src/
+mypy src/
+pytest tests/ -v
+```
+
+### Процесс релиза
+
+1. Обновите версию в файлах:
+   - README.md
+   - CHANGELOG.md
+
+2. Создайте коммит с изменениями:
+   ```bash
+   git add .
+   git commit -m "feat: описание изменений"
+   ```
+
+3. Создайте тег с новой версией:
+   ```bash
+   git tag v2.x.x
+   ```
+
+4. Отправьте изменения и тег:
+   ```bash
+   git push origin master
+   git push origin v2.x.x
+   ```
+
+5. GitHub Actions автоматически запустит процесс сборки и деплоя.
+
 ## Дополнительная информация
 
 - [GitHub Setup](GITHUB_SETUP.md) - Настройка GitHub Actions
