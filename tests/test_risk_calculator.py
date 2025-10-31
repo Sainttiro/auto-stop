@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from src.core.risk_calculator import RiskCalculator
 from src.api.instrument_info import InstrumentInfoCache
-from src.config.settings import DefaultSettings, StockSettings, FuturesSettings
+from src.config.settings import DefaultSettings, StockSettings, FuturesSettings, InstrumentSettings
 
 
 class MockInstrumentCache:
@@ -136,10 +136,10 @@ class TestRiskCalculator(unittest.TestCase):
         )
         
         # Проверяем результаты
-        # SL = 100000 - (10 * 10) = 99900
-        # TP = 100000 + (30 * 10) = 100300
-        self.assertEqual(sl_price, Decimal("99900.00"))
-        self.assertEqual(tp_price, Decimal("100300.00"))
+        # SL = 100000 * (1 - 2/100) = 98000
+        # TP = 100000 * (1 + 5/100) = 105000
+        self.assertEqual(sl_price, Decimal("98000"))
+        self.assertEqual(tp_price, Decimal("105000"))
     
     def test_calculate_futures_levels_short(self):
         """
@@ -165,10 +165,10 @@ class TestRiskCalculator(unittest.TestCase):
         )
         
         # Проверяем результаты
-        # SL = 100000 + (10 * 10) = 100100
-        # TP = 100000 - (30 * 10) = 99700
-        self.assertEqual(sl_price, Decimal("100100.00"))
-        self.assertEqual(tp_price, Decimal("99700.00"))
+        # SL = 100000 * (1 + 2/100) = 102000
+        # TP = 100000 * (1 - 5/100) = 95000
+        self.assertEqual(sl_price, Decimal("102000"))
+        self.assertEqual(tp_price, Decimal("95000"))
     
     def test_calculate_futures_levels_long_with_pct(self):
         """
