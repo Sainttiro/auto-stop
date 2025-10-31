@@ -1,10 +1,8 @@
-from typing import Dict, Optional, Tuple, List
+from typing import Optional
 from decimal import Decimal
 
-from src.storage.models import Position, Order
+from src.storage.models import Position
 from src.config.settings import InstrumentSettings
-from src.core.risk_calculator import RiskCalculator
-from src.core.order_executor import OrderExecutor
 from src.strategies.base import BaseStrategy
 from src.utils.logger import get_logger
 
