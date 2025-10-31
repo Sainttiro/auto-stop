@@ -3,7 +3,7 @@
 """
 
 from typing import List, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from tinkoff.invest import OperationType, OperationState, GetOperationsByCursorRequest
 
 from src.api.client import TinkoffAPIClient

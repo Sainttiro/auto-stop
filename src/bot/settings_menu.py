@@ -3,8 +3,7 @@
 """
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
-from typing import Optional, List, Dict
+from telegram.ext import ContextTypes, ConversationHandler
 import json
 
 from src.config.settings_manager import SettingsManager

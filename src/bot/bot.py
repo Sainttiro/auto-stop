@@ -2,7 +2,6 @@
 Telegram Bot для управления системой Auto-Stop
 """
 
-import asyncio
 from typing import Optional
 from datetime import datetime, timezone
 from telegram import Bot, BotCommand, Update
@@ -120,9 +119,9 @@ class TelegramBot:
             # ConversationHandler для меню настроек
             from src.bot.settings_menu import (
                 MAIN_MENU, GLOBAL_SETTINGS, INSTRUMENT_LIST, INSTRUMENT_SETTINGS,
-                EDIT_SL, EDIT_TP, MULTI_TP_MENU, ADD_LEVEL, ADD_LEVEL_PRICE, ADD_LEVEL_VOLUME,
+                EDIT_SL, EDIT_TP, MULTI_TP_MENU, ADD_LEVEL_PRICE, ADD_LEVEL_VOLUME,
                 EDIT_LEVEL, EDIT_LEVEL_PRICE, EDIT_LEVEL_VOLUME, DELETE_LEVEL,
-                SL_STRATEGY, ADD_INSTRUMENT, EDIT_INSTRUMENT_SL, EDIT_INSTRUMENT_TP,
+                ADD_INSTRUMENT, EDIT_INSTRUMENT_SL, EDIT_INSTRUMENT_TP,
                 EDIT_SL_ACTIVATION, EDIT_TP_ACTIVATION, EDIT_INSTRUMENT_SL_ACTIVATION, EDIT_INSTRUMENT_TP_ACTIVATION
             )
             

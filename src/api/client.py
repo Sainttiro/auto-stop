@@ -1,6 +1,6 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional
 import asyncio
-from tinkoff.invest import AsyncClient, Client, RequestError, InstrumentIdType
+from tinkoff.invest import AsyncClient, InstrumentIdType
 from tinkoff.invest.exceptions import AioRequestError
 
 from src.utils.logger import get_logger

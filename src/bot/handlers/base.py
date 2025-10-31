@@ -3,7 +3,6 @@
 """
 
 from telegram import Update
-from telegram.ext import ContextTypes
 
 from src.utils.logger import get_logger
 

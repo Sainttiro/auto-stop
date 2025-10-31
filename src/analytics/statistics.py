@@ -2,8 +2,7 @@
 Модуль для расчета статистики по операциям
 """
 
-from typing import List, Dict, Tuple
-from datetime import datetime, timedelta
+from typing import List, Dict
 from collections import defaultdict
 
 from src.storage.models import OperationCache
