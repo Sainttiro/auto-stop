@@ -339,22 +339,34 @@ class TradesProcessor:
             
             # Обновляем позицию
             logger.debug(f"Обновление позиции для {ticker}...")
-            position = await self.position_manager.update_position_on_trade(
-                account_id=account_id,
-                figi=figi,
-                ticker=ticker,
-                instrument_type=instrument_type,
-                quantity=quantity,
-                price=price,
-                direction=direction
-            )
-            
-            # Если позиция была закрыта, выходим
-            if not position:
-                logger.info(f"Позиция {ticker} была закрыта")
-                return
-            
-            logger.info(f"Позиция обновлена: {ticker}, количество={position.quantity}, средняя цена={position.average_price}")
+            try:
+                position = await self.position_manager.update_position_on_trade(
+                    account_id=account_id,
+                    figi=figi,
+                    ticker=ticker,
+                    instrument_type=instrument_type,
+                    quantity=quantity,
+                    price=price,
+                    direction=direction
+                )
+                
+                # Если позиция была закрыта, выходим
+                if not position:
+                    logger.info(f"Позиция {ticker} была закрыта")
+                    return
+                
+                logger.info(f"Позиция обновлена: {ticker}, количество={position.quantity}, средняя цена={position.average_price}")
+            except Exception as e:
+                logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА при обновлении позиции {ticker}: {e}", exc_info=True)
+                # Логируем ошибку
+                await self.db.log_event(
+                    event_type="ERROR",
+                    account_id=account_id,
+                    description=f"Ошибка при обновлении позиции {ticker}: {str(e)}",
+                    details={"error": str(e), "traceback": str(e.__traceback__)}
+                )
+                # Пробрасываем исключение дальше
+                raise
             
             # Проверяем, изменилось ли количество в позиции (увеличение или уменьшение)
             is_position_changed = old_quantity > 0 and position.quantity != old_quantity
@@ -367,26 +379,52 @@ class TradesProcessor:
                     f"Отменяем старые ордера и выставляем новые на правильное количество."
                 )
                 
-                # Отменяем ВСЕ старые ордера для этой позиции
-                cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
-                logger.info(f"Отменено {cancelled_count} старых ордеров для {ticker}")
-                
-                # Важно: после отмены старых ордеров нужно выставить новые
-                # Это будет сделано ниже в коде
+                try:
+                    # Отменяем ВСЕ старые ордера для этой позиции
+                    cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
+                    logger.info(f"Отменено {cancelled_count} старых ордеров для {ticker}")
+                    
+                    # Важно: после отмены старых ордеров нужно выставить новые
+                    # Это будет сделано ниже в коде
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при отмене старых ордеров для {ticker}: {e}", exc_info=True)
+                    # Логируем ошибку, но продолжаем выполнение
+                    await self.db.log_event(
+                        event_type="ERROR",
+                        account_id=account_id,
+                        description=f"Ошибка при отмене старых ордеров для {ticker}: {str(e)}",
+                        details={"error": str(e)}
+                    )
+                    # НЕ пробрасываем исключение дальше, чтобы продолжить выставление новых ордеров
             
             # Получаем настройки инструмента
-            instrument_settings = self.instruments_config.instruments.get(ticker)
-            logger.debug(f"Настройки инструмента для {ticker}: {instrument_settings is not None}")
+            try:
+                instrument_settings = self.instruments_config.instruments.get(ticker)
+                logger.debug(f"Настройки инструмента для {ticker}: {instrument_settings is not None}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка при получении настроек инструмента для {ticker}: {e}", exc_info=True)
+                # Используем None как настройки инструмента
+                instrument_settings = None
             
             # Проверяем, нужно ли использовать многоуровневый тейк-профит
             use_multi_tp = False
             multi_tp_levels = []
             
-            # Сначала проверяем настройки из БД (имеют высший приоритет)
-            effective_settings = await self.settings_manager.get_effective_settings(
-                account_id=account_id,
-                ticker=ticker
-            )
+            try:
+                # Сначала проверяем настройки из БД (имеют высший приоритет)
+                effective_settings = await self.settings_manager.get_effective_settings(
+                    account_id=account_id,
+                    ticker=ticker
+                )
+                
+                logger.debug(f"Получены эффективные настройки для {ticker}: {effective_settings}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка при получении настроек из БД для {ticker}: {e}", exc_info=True)
+                # Используем пустой словарь как настройки
+                effective_settings = {
+                    'multi_tp_enabled': False,
+                    'multi_tp_levels': []
+                }
             
             if effective_settings['multi_tp_enabled']:
                 use_multi_tp = True
