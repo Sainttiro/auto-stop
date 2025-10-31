@@ -509,6 +509,39 @@ class PositionsProcessor:
             
             # СЛУЧАЙ 3: Изменение количества (усреднение или частичное закрытие)
             if position and position.quantity != new_quantity:
+                # Проверяем, не является ли это расхождением между TradesStream и PositionsStream
+                # Если разница слишком большая (>50%), это может быть из-за старых позиций
+                # которые были до запуска бота и не должны учитываться
+                quantity_diff = abs(new_quantity - position.quantity)
+                quantity_ratio = quantity_diff / position.quantity if position.quantity > 0 else float('inf')
+                
+                # Если разница больше 50% и новое количество больше старого,
+                # это может быть из-за старых позиций, которые не отслеживаются ботом
+                if quantity_ratio > 0.5 and new_quantity > position.quantity:
+                    logger.warning(
+                        f"⚠️ Обнаружено большое расхождение в количестве для {ticker}: "
+                        f"{position.quantity} -> {new_quantity} (разница {quantity_diff}, {quantity_ratio:.1%}). "
+                        f"Возможно, это старые позиции, которые не отслеживаются ботом. "
+                        f"Игнорируем обновление из PositionsStream."
+                    )
+                    
+                    # Логируем событие
+                    await self.db.log_event(
+                        event_type="POSITION_DISCREPANCY",
+                        account_id=account_id,
+                        figi=figi,
+                        ticker=ticker,
+                        description=f"Обнаружено большое расхождение в количестве для {ticker}",
+                        details={
+                            "db_quantity": position.quantity,
+                            "broker_quantity": new_quantity,
+                            "difference": quantity_diff,
+                            "ratio": float(quantity_ratio),
+                            "ignored": True
+                        }
+                    )
+                    return
+                
                 logger.info(
                     f"🔄 Изменение количества в PositionsStream: {ticker}, "
                     f"{position.quantity} -> {new_quantity}"

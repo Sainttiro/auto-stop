@@ -52,6 +52,28 @@ class OrderCanceller(BaseOrderPlacer):
             return True
             
         except Exception as e:
+            # Проверяем, является ли ошибка "NOT_FOUND" (ордер уже не существует)
+            error_str = str(e)
+            if "NOT_FOUND" in error_str or "not found" in error_str.lower() or "50006" in error_str:
+                # Ордер уже не существует - считаем это успешной отменой
+                logger.warning(f"Ордер {order.order_id} ({order.order_purpose}) не найден в API (уже отменен или исполнен)")
+                
+                # Обновляем статус ордера в БД
+                order.status = "CANCELLED"
+                await self.db.update(Order, order.id, {"status": "CANCELLED"})
+                
+                # Логируем событие
+                await self.db.log_event(
+                    event_type="ORDER_NOT_FOUND",
+                    account_id=order.account_id,
+                    figi=order.figi,
+                    description=f"Ордер {order.order_id} ({order.order_purpose}) не найден в API (уже отменен или исполнен)",
+                    details={"order_id": order.order_id, "order_purpose": order.order_purpose}
+                )
+                
+                return True
+            
+            # Другие ошибки логируем как ERROR
             logger.error(f"Ошибка при отмене ордера {order.order_id}: {e}")
             
             # Логируем ошибку
