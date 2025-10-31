@@ -370,6 +370,9 @@ class TradesProcessor:
                 # Отменяем ВСЕ старые ордера для этой позиции
                 cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
                 logger.info(f"Отменено {cancelled_count} старых ордеров для {ticker}")
+                
+                # Важно: после отмены старых ордеров нужно выставить новые
+                # Это будет сделано ниже в коде
             
             # Получаем настройки инструмента
             instrument_settings = self.instruments_config.instruments.get(ticker)

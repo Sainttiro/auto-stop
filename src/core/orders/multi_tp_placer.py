@@ -48,12 +48,46 @@ class MultiTakeProfitPlacer(BaseOrderPlacer):
         # Получаем размер лота для конвертации
         _, lot_size = await self._convert_to_lots(position.figi, 1)
         
-        # Выставляем ордера для каждого уровня
+        # Шаг 1: Расширяем tp_levels, добавляя точное (дробное) количество для каждого уровня
+        tp_levels_extended = []
         for level_idx, (price, volume_pct) in enumerate(tp_levels, start=1):
+            exact_quantity = position.quantity * volume_pct / 100
+            tp_levels_extended.append((price, volume_pct, exact_quantity))
+        
+        # Шаг 2: Умное распределение лотов
+        total_quantity = position.quantity
+        allocated_quantity = 0
+        
+        # Сначала округляем вниз и считаем, сколько лотов "потеряли"
+        quantities = []
+        for price, volume_pct, exact_quantity in tp_levels_extended:
+            # Округляем вниз до ближайшего целого
+            rounded_quantity = int(exact_quantity)
+            quantities.append(rounded_quantity)
+            allocated_quantity += rounded_quantity
+        
+        # Распределяем оставшиеся лоты по уровням, начиная с тех, у которых была наибольшая дробная часть
+        remaining_quantity = total_quantity - allocated_quantity
+        
+        if remaining_quantity > 0:
+            # Сортируем уровни по убыванию дробной части
+            fractional_parts = [(i, tp_levels_extended[i][2] - quantities[i]) 
+                               for i in range(len(tp_levels_extended))]
+            fractional_parts.sort(key=lambda x: x[1], reverse=True)
+            
+            # Распределяем оставшиеся лоты
+            for i in range(min(remaining_quantity, len(fractional_parts))):
+                level_idx = fractional_parts[i][0]
+                quantities[level_idx] += 1
+        
+        # Проверяем, что сумма распределенных лотов равна общему количеству
+        assert sum(quantities) == total_quantity, f"Ошибка распределения лотов: {sum(quantities)} != {total_quantity}"
+        
+        logger.info(f"Умное распределение лотов для {position.ticker}: {quantities} (всего {total_quantity})")
+        
+        # Выставляем ордера для каждого уровня
+        for level_idx, ((price, volume_pct, _), quantity) in enumerate(zip(tp_levels_extended, quantities), start=1):
             try:
-                # Рассчитываем количество для этого уровня
-                quantity = int(position.quantity * volume_pct / 100)
-                
                 # Если количество меньше размера лота, пропускаем уровень
                 if quantity < lot_size:
                     logger.warning(
