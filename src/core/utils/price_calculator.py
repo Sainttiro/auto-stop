@@ -1,7 +1,7 @@
 """
 Утилиты для расчета цен исполнения ордеров
 """
-from typing import Tuple
+from typing import Tuple, Optional
 from decimal import Decimal
 
 from src.api.instrument_info import InstrumentInfoCache
