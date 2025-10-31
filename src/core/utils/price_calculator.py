@@ -1,6 +1,7 @@
 """
 Утилиты для расчета цен исполнения ордеров
 """
+from __future__ import annotations
 from typing import Tuple, Optional
 from decimal import Decimal
 
