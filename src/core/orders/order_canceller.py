@@ -40,7 +40,7 @@ class OrderCanceller(BaseOrderPlacer):
             
             # Обновляем статус ордера в БД
             order.status = "CANCELLED"
-            await self.db.update(order)
+            await self.db.update(Order, order.id, {"status": "CANCELLED"})
             
             # Логируем событие
             await log_order_cancelled(
