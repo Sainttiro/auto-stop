@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, Optional, List
+from typing import Tuple, Optional, List
 from decimal import Decimal
 
 from src.config.settings import InstrumentSettings, DefaultSettings

@@ -1,7 +1,6 @@
 """
 Координатор потоков данных через gRPC
 """
-import asyncio
 from typing import Optional, Dict, Any
 
 from src.api.client import TinkoffAPIClient

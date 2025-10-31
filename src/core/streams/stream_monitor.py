@@ -2,7 +2,7 @@
 Мониторинг здоровья потоков данных
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, Callable, Awaitable
 
 from src.storage.database import Database

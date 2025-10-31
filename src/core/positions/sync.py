@@ -1,7 +1,7 @@
 """
 Синхронизация позиций с брокером
 """
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from decimal import Decimal
 
 from src.api.client import TinkoffAPIClient

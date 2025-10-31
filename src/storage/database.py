@@ -2,7 +2,7 @@ import os
 import json
 import sqlite3
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Type, TypeVar, Generic
+from typing import Optional, List, Dict, Any, Type, TypeVar
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.ext.asyncio import AsyncEngine

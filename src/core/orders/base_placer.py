@@ -1,24 +1,14 @@
 """
 Базовый класс для размещения ордеров
 """
-from typing import Optional, Dict, Any
-from decimal import Decimal
-
-from tinkoff.invest import (
-    OrderDirection,
-    OrderType,
-    StopOrderDirection,
-    StopOrderExpirationType,
-    StopOrderType
-)
+from typing import Optional
 
 from src.api.client import TinkoffAPIClient
 from src.api.instrument_info import InstrumentInfoCache
 from src.storage.database import Database
 from src.storage.models import Order, Position
 from src.core.utils.lot_converter import convert_to_lots
-from src.core.utils.order_logger import log_order_event, log_order_error
-from src.utils.converters import decimal_to_quotation
+from src.core.utils.order_logger import log_order_error
 from src.utils.logger import get_logger
 
 logger = get_logger("core.orders.base_placer")

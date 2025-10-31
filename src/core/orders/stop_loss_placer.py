@@ -3,7 +3,6 @@
 """
 from typing import Optional
 from decimal import Decimal
-import uuid
 
 from tinkoff.invest import (
     StopOrderDirection,
@@ -11,9 +10,6 @@ from tinkoff.invest import (
     StopOrderType
 )
 
-from src.api.client import TinkoffAPIClient
-from src.api.instrument_info import InstrumentInfoCache
-from src.storage.database import Database
 from src.storage.models import Order, Position
 from src.core.utils.price_calculator import calculate_execution_price
 from src.core.utils.order_logger import log_stop_loss_placed

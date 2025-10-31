@@ -1,6 +1,7 @@
 """
 Утилиты для работы с ордерами, позициями и ценами
 """
+from typing import Optional
 
 # Экспорт функций для конвертации лотов
 from src.core.utils.lot_converter import (

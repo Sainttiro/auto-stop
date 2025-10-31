@@ -1,7 +1,7 @@
 """
 Управление многоуровневыми тейк-профит ордерами
 """
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any
 from decimal import Decimal
 from sqlalchemy.future import select
 

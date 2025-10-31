@@ -1,10 +1,7 @@
 """
 Класс для отмены ордеров
 """
-from typing import Optional, List
 
-from src.api.client import TinkoffAPIClient
-from src.storage.database import Database
 from src.storage.models import Order
 from src.core.utils.order_logger import log_order_cancelled
 from src.utils.logger import get_logger

@@ -129,9 +129,8 @@ class ActivationChecker:
         if sl_activation_pct is None and tp_activation_pct is None:
             return True, True
         
-        # Получаем цены активации
-        from src.api.instrument_info import InstrumentInfoCache
-        instrument_cache = None  # Это должно быть передано в метод или в конструктор
+        # instrument_cache должен быть передан в метод или в конструктор
+        instrument_cache = None
         
         # Получаем цены активации
         sl_activation_price, tp_activation_price = await calculate_activation_prices(

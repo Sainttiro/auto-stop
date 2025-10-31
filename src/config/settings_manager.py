@@ -6,7 +6,6 @@
 import json
 from typing import Optional, Dict, List, Any
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.storage.models import GlobalSettings, InstrumentSettings
 from src.storage.database import Database

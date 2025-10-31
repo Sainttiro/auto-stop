@@ -1,7 +1,7 @@
 """
 Координатор размещения и отмены ордеров
 """
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple
 from decimal import Decimal
 
 from src.api.client import TinkoffAPIClient

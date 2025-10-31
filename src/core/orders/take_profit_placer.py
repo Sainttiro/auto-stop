@@ -10,9 +10,6 @@ from tinkoff.invest import (
     StopOrderType
 )
 
-from src.api.client import TinkoffAPIClient
-from src.api.instrument_info import InstrumentInfoCache
-from src.storage.database import Database
 from src.storage.models import Order, Position
 from src.core.utils.order_logger import log_take_profit_placed
 from src.utils.converters import decimal_to_quotation

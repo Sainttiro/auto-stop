@@ -8,8 +8,7 @@ from datetime import datetime
 
 from tinkoff.invest import (
     OrderTrades,
-    OrderDirection,
-    OrderExecutionReportStatus
+    OrderDirection
 )
 
 from src.api.client import TinkoffAPIClient

@@ -1,9 +1,7 @@
 import asyncio
 import argparse
 import signal
-import sys
-from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Optional
 
 from src.config.loader import load_config
 from src.api.client import TinkoffAPIClient
