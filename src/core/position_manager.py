@@ -137,7 +137,57 @@ class PositionManager:
         Returns:
             Position: Созданная позиция
         """
-        async with self._lock:
+        # Проверяем, вызывается ли метод из update_position_on_trade (где блокировка уже захвачена)
+        if self._lock.locked():
+            return await self._create_position_unlocked(
+                account_id=account_id,
+                figi=figi,
+                ticker=ticker,
+                instrument_type=instrument_type,
+                quantity=quantity,
+                price=price,
+                direction=direction
+            )
+        else:
+            # Если вызывается напрямую, захватываем блокировку
+            async with self._lock:
+                return await self._create_position_unlocked(
+                    account_id=account_id,
+                    figi=figi,
+                    ticker=ticker,
+                    instrument_type=instrument_type,
+                    quantity=quantity,
+                    price=price,
+                    direction=direction
+                )
+    
+    async def _create_position_unlocked(
+        self,
+        account_id: str,
+        figi: str,
+        ticker: str,
+        instrument_type: str,
+        quantity: int,
+        price: Decimal,
+        direction: str
+    ) -> Position:
+        """
+        Внутренний метод для создания позиции без захвата блокировки.
+        Используется из update_position_on_trade, где блокировка уже захвачена.
+        
+        Args:
+            account_id: ID счета
+            figi: FIGI инструмента
+            ticker: Тикер инструмента
+            instrument_type: Тип инструмента ("stock" или "futures")
+            quantity: Количество лотов
+            price: Цена входа
+            direction: Направление ("LONG" или "SHORT")
+            
+        Returns:
+            Position: Созданная позиция
+        """
+        try:
             # Проверяем, не существует ли уже позиция
             existing = await self.get_position(account_id, figi)
             if existing:
@@ -177,7 +227,20 @@ class PositionManager:
                 }
             )
             
+            logger.debug(f"_create_position_unlocked: Позиция {ticker} успешно создана, id={position.id}")
             return position
+        except Exception as e:
+            logger.error(f"Ошибка при создании позиции {ticker}: {e}", exc_info=True)
+            # Логируем ошибку
+            await self.db.log_event(
+                event_type="ERROR",
+                account_id=account_id,
+                figi=figi,
+                ticker=ticker,
+                description=f"Ошибка при создании позиции {ticker}: {str(e)}",
+                details={"error": str(e)}
+            )
+            raise
     
     async def update_position(
         self,
@@ -414,23 +477,38 @@ class PositionManager:
                     f"quantity={quantity}, price={price}"
                 )
                 
-                new_position = await self.create_position(
-                    account_id=account_id,
-                    figi=figi,
-                    ticker=ticker,
-                    instrument_type=instrument_type,
-                    quantity=quantity,
-                    price=price,
-                    direction=position_direction
-                )
-                
-                logger.debug(
-                    f"update_position_on_trade: Создана новая позиция {ticker}: "
-                    f"id={new_position.id}, quantity={new_position.quantity}, "
-                    f"avg_price={new_position.average_price}"
-                )
-                
-                return new_position
+                try:
+                    # Используем _create_position_unlocked напрямую, так как блокировка уже захвачена
+                    new_position = await self._create_position_unlocked(
+                        account_id=account_id,
+                        figi=figi,
+                        ticker=ticker,
+                        instrument_type=instrument_type,
+                        quantity=quantity,
+                        price=price,
+                        direction=position_direction
+                    )
+                    
+                    logger.debug(
+                        f"update_position_on_trade: Создана новая позиция {ticker}: "
+                        f"id={new_position.id}, quantity={new_position.quantity}, "
+                        f"avg_price={new_position.average_price}"
+                    )
+                    
+                    return new_position
+                except Exception as e:
+                    logger.error(f"Ошибка при создании позиции в update_position_on_trade: {e}", exc_info=True)
+                    # Логируем ошибку
+                    await self.db.log_event(
+                        event_type="ERROR",
+                        account_id=account_id,
+                        figi=figi,
+                        ticker=ticker,
+                        description=f"Ошибка при создании позиции в update_position_on_trade: {str(e)}",
+                        details={"error": str(e)}
+                    )
+                    # Пробрасываем исключение дальше
+                    raise
             
             # Если позиция уже есть, обновляем ее
             old_quantity = position.quantity
