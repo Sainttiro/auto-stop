@@ -3,7 +3,7 @@
 """
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional, Callable, Awaitable
+from typing import Dict, Optional, Callable, Awaitable
 
 from src.storage.database import Database
 from src.utils.logger import get_logger

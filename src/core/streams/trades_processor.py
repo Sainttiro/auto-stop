@@ -2,7 +2,7 @@
 Обработка потока сделок
 """
 import asyncio
-from typing import Dict, Set, Optional, Any
+from typing import Set, Optional, Any
 from decimal import Decimal
 from datetime import datetime
 
