@@ -130,7 +130,8 @@ class ActivationChecker:
             return True, True
         
         # instrument_cache должен быть передан в метод или в конструктор
-        instrument_cache = None
+        from src.api.instrument_info import InstrumentInfoCache
+        instrument_cache = InstrumentInfoCache(None)
         
         # Получаем цены активации
         sl_activation_price, tp_activation_price = await calculate_activation_prices(
