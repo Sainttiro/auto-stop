@@ -375,9 +375,24 @@ class PositionManager:
         Returns:
             Optional[Position]: Обновленная или созданная позиция
         """
+        logger.debug(
+            f"update_position_on_trade: Начало обработки сделки {ticker}, "
+            f"direction={direction}, quantity={quantity}, price={price}"
+        )
+        
         async with self._lock:
             # Получаем текущую позицию
             position = await self.get_position(account_id, figi)
+            
+            # Логируем состояние позиции
+            if position:
+                logger.debug(
+                    f"update_position_on_trade: Найдена существующая позиция {ticker}: "
+                    f"id={position.id}, quantity={position.quantity}, "
+                    f"avg_price={position.average_price}, direction={position.direction}"
+                )
+            else:
+                logger.debug(f"update_position_on_trade: Позиция {ticker} не найдена в БД")
             
             # Если позиции нет, создаем новую
             if not position:
@@ -388,12 +403,18 @@ class PositionManager:
                         f"Продажа {ticker} без позиции в системе. "
                         f"Это продажа акций, не отслеживаемых системой. Пропускаем."
                     )
+                    logger.debug(f"update_position_on_trade: Возвращаем None для {ticker} (SELL без позиции)")
                     return None
                 
                 # Создаем только LONG позицию при покупке
                 position_direction = "LONG"
                 
-                return await self.create_position(
+                logger.debug(
+                    f"update_position_on_trade: Создаем новую LONG позицию для {ticker}, "
+                    f"quantity={quantity}, price={price}"
+                )
+                
+                new_position = await self.create_position(
                     account_id=account_id,
                     figi=figi,
                     ticker=ticker,
@@ -402,6 +423,14 @@ class PositionManager:
                     price=price,
                     direction=position_direction
                 )
+                
+                logger.debug(
+                    f"update_position_on_trade: Создана новая позиция {ticker}: "
+                    f"id={new_position.id}, quantity={new_position.quantity}, "
+                    f"avg_price={new_position.average_price}"
+                )
+                
+                return new_position
             
             # Если позиция уже есть, обновляем ее
             old_quantity = position.quantity
@@ -411,11 +440,31 @@ class PositionManager:
             is_increasing = (position.direction == "LONG" and direction == "BUY") or \
                            (position.direction == "SHORT" and direction == "SELL")
             
+            logger.debug(
+                f"update_position_on_trade: Обновление существующей позиции {ticker}: "
+                f"old_quantity={old_quantity}, old_price={old_price}, "
+                f"is_increasing={is_increasing}, direction={direction}"
+            )
+            
             if is_increasing:
                 # Увеличение позиции - рассчитываем новую среднюю цену
                 new_quantity = old_quantity + quantity
                 new_price = await self.calculate_average_price(old_quantity, old_price, quantity, price)
-                return await self.update_position(position.id, new_quantity, new_price)
+                
+                logger.debug(
+                    f"update_position_on_trade: Увеличение позиции {ticker}: "
+                    f"new_quantity={new_quantity}, new_price={new_price}"
+                )
+                
+                updated_position = await self.update_position(position.id, new_quantity, new_price)
+                
+                logger.debug(
+                    f"update_position_on_trade: Позиция {ticker} увеличена: "
+                    f"id={updated_position.id}, quantity={updated_position.quantity}, "
+                    f"avg_price={updated_position.average_price}"
+                )
+                
+                return updated_position
             else:
                 # Уменьшение позиции - средняя цена не меняется
                 new_quantity = old_quantity - quantity
@@ -451,11 +500,26 @@ class PositionManager:
                         )
                     
                     # Закрываем позицию (без создания SHORT)
+                    logger.debug(f"update_position_on_trade: Закрываем позицию {ticker} (new_quantity <= 0)")
                     await self.close_position(position.id)
+                    logger.debug(f"update_position_on_trade: Возвращаем None для {ticker} (позиция закрыта)")
                     return None
                 else:
                     # Просто уменьшаем количество
-                    return await self.update_position(position.id, new_quantity)
+                    logger.debug(
+                        f"update_position_on_trade: Уменьшение позиции {ticker}: "
+                        f"new_quantity={new_quantity}"
+                    )
+                    
+                    updated_position = await self.update_position(position.id, new_quantity)
+                    
+                    logger.debug(
+                        f"update_position_on_trade: Позиция {ticker} уменьшена: "
+                        f"id={updated_position.id}, quantity={updated_position.quantity}, "
+                        f"avg_price={updated_position.average_price}"
+                    )
+                    
+                    return updated_position
     
     async def setup_multi_tp_levels(
         self,
