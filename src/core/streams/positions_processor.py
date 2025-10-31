@@ -2,13 +2,10 @@
 Обработка потока изменений позиций
 """
 import asyncio
-from typing import Optional
+from typing import Optional, Any
 from decimal import Decimal
-from datetime import datetime
 
-from tinkoff.invest import (
-    PositionsStreamResponse
-)
+from tinkoff.invest import PositionsStreamResponse
 
 from src.api.client import TinkoffAPIClient
 from src.api.instrument_info import InstrumentInfoCache

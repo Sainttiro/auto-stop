@@ -154,10 +154,7 @@ class StreamHandler:
             message: Текст сообщения
         """
         try:
-            # Проверяем наличие Telegram уведомлений
-            from src.notifications.telegram import TelegramNotifier
-            
-            # Получаем экземпляр TelegramNotifier из main.py
+            # Получаем экземпляр notifier из main.py
             # Это не идеальное решение, но работает для отправки уведомлений
             # В идеале нужно передавать notifier в конструкторе
             import sys

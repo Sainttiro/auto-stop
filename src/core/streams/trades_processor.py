@@ -17,7 +17,7 @@ from src.core.position_manager import PositionManager
 from src.core.risk_calculator import RiskCalculator
 from src.core.order_executor import OrderExecutor
 from src.storage.database import Database
-from src.storage.models import Position, Order, Trade
+from src.storage.models import Position, Trade
 from src.config.settings import InstrumentsConfig
 from src.config.settings_manager import SettingsManager
 from src.utils.converters import quotation_to_decimal

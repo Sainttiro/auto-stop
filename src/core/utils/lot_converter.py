@@ -2,7 +2,6 @@
 Утилиты для конвертации количества акций в лоты и обратно
 """
 from typing import Tuple
-from decimal import Decimal
 
 from src.api.instrument_info import InstrumentInfoCache
 from src.utils.logger import get_logger
