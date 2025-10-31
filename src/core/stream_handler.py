@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Set, Callable, Awaitable, Any, Tuple
 import asyncio
 from decimal import Decimal
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from tinkoff.invest import (
     OrderTrades,
@@ -72,9 +72,18 @@ class StreamHandler:
         self._running = False
         self._trades_stream_task = None
         self._positions_stream_task = None
+        self._monitor_task = None
         
         # Блокировка для синхронизации
         self._lock = asyncio.Lock()
+        
+        # Время последнего сообщения для мониторинга здоровья потоков
+        self._last_trades_message = datetime.now()
+        self._last_positions_message = datetime.now()
+        
+        # Настройки мониторинга
+        self._monitor_interval = 60  # секунды между проверками
+        self._stream_timeout = 300   # секунды без сообщений до перезапуска (5 минут)
         
         # Множество обработанных сделок для избежания дублирования
         # Используем trade_id вместо order_id, так как один ордер может генерировать несколько сделок
@@ -105,6 +114,11 @@ class StreamHandler:
             self._run_positions_stream(account_id)
         )
         
+        # Запускаем мониторинг потоков
+        self._monitor_task = asyncio.create_task(
+            self._monitor_streams(account_id)
+        )
+        
         logger.info(f"Обработчик потоков запущен для счета {account_id}")
     
     async def stop(self):
@@ -126,6 +140,9 @@ class StreamHandler:
         
         if self._positions_stream_task and not self._positions_stream_task.done():
             tasks_to_cancel.append(("positions", self._positions_stream_task))
+            
+        if self._monitor_task and not self._monitor_task.done():
+            tasks_to_cancel.append(("monitor", self._monitor_task))
         
         for task_name, task in tasks_to_cancel:
             logger.debug(f"Отменяем задачу {task_name}...")
@@ -142,6 +159,7 @@ class StreamHandler:
         
         self._trades_stream_task = None
         self._positions_stream_task = None
+        self._monitor_task = None
         
         logger.info("Обработчик потоков остановлен")
     
@@ -280,16 +298,22 @@ class StreamHandler:
         # Обработка ping-сообщений (keep-alive)
         if hasattr(trade_response, 'ping') and trade_response.ping:
             logger.debug("Получен ping в потоке сделок")
+            # Обновляем время последнего сообщения
+            self._last_trades_message = datetime.now()
             return
         
         # Обработка подтверждения подписки
         if hasattr(trade_response, 'subscription') and trade_response.subscription:
             logger.info(f"Подписка на поток сделок подтверждена: {trade_response.subscription}")
+            # Обновляем время последнего сообщения
+            self._last_trades_message = datetime.now()
             return
         
         # Обработка данных о сделке
         if not hasattr(trade_response, 'order_trades') or not trade_response.order_trades:
             logger.debug(f"Получено пустое сообщение в потоке сделок")
+            # Обновляем время последнего сообщения даже для пустых сообщений
+            self._last_trades_message = datetime.now()
             return
         
         # Извлекаем данные о сделке из order_trades
@@ -530,24 +554,32 @@ class StreamHandler:
             # Обработка ping-сообщений (keep-alive)
             if hasattr(position_response, 'ping') and position_response.ping:
                 logger.debug("Получен ping в потоке позиций")
+                # Обновляем время последнего сообщения
+                self._last_positions_message = datetime.now()
                 return
-            
+                
             # Обработка подтверждения подписки
             if hasattr(position_response, 'subscriptions') and position_response.subscriptions:
                 logger.info(f"Подписка на поток позиций подтверждена для счета {account_id}")
+                # Обновляем время последнего сообщения
+                self._last_positions_message = datetime.now()
                 return
-            
+                
             # Обработка начальных позиций при подключении
             if hasattr(position_response, 'initial_positions') and position_response.initial_positions:
                 logger.info(f"Получены начальные позиции для счета {account_id}")
+                # Обновляем время последнего сообщения
+                self._last_positions_message = datetime.now()
                 # Можно обработать начальные позиции, если необходимо
                 return
-            
+                
             # Обработка изменения позиции
             if not hasattr(position_response, "position") or position_response.position is None:
                 logger.debug(f"Получено пустое сообщение в потоке позиций")
+                # Обновляем время последнего сообщения даже для пустых сообщений
+                self._last_positions_message = datetime.now()
                 return
-            
+                
             position_data = position_response.position
             
             # Проверяем наличие securities (позиций по инструментам)
@@ -674,6 +706,170 @@ class StreamHandler:
             )
         
         return sl_activated, tp_activated
+    
+    async def _monitor_streams(self, account_id: str):
+        """
+        Мониторинг здоровья потоков данных
+        
+        Проверяет, что потоки получают сообщения регулярно.
+        Если поток не получает сообщений в течение self._stream_timeout секунд,
+        он считается "зависшим" и перезапускается.
+        
+        Args:
+            account_id: ID счета
+        """
+        logger.info(f"Запущен мониторинг здоровья потоков для счета {account_id}")
+        
+        while self._running:
+            try:
+                # Ждем указанный интервал между проверками
+                await asyncio.sleep(self._monitor_interval)
+                
+                # Получаем текущее время
+                now = datetime.now()
+                
+                # Проверяем поток сделок
+                trades_idle_time = (now - self._last_trades_message).total_seconds()
+                if trades_idle_time > self._stream_timeout:
+                    logger.critical(
+                        f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Поток сделок не отвечает {trades_idle_time:.1f} секунд "
+                        f"(> {self._stream_timeout} сек). Перезапуск..."
+                    )
+                    
+                    # Логируем событие в БД
+                    await self.db.log_event(
+                        event_type="STREAM_TIMEOUT",
+                        account_id=account_id,
+                        description=f"Поток сделок не отвечает {trades_idle_time:.1f} секунд. Перезапуск...",
+                        details={
+                            "stream_type": "trades",
+                            "idle_time": trades_idle_time,
+                            "timeout": self._stream_timeout
+                        }
+                    )
+                    
+                    # Перезапускаем поток сделок
+                    await self._restart_stream("trades", account_id)
+                
+                # Проверяем поток позиций
+                positions_idle_time = (now - self._last_positions_message).total_seconds()
+                if positions_idle_time > self._stream_timeout:
+                    logger.critical(
+                        f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Поток позиций не отвечает {positions_idle_time:.1f} секунд "
+                        f"(> {self._stream_timeout} сек). Перезапуск..."
+                    )
+                    
+                    # Логируем событие в БД
+                    await self.db.log_event(
+                        event_type="STREAM_TIMEOUT",
+                        account_id=account_id,
+                        description=f"Поток позиций не отвечает {positions_idle_time:.1f} секунд. Перезапуск...",
+                        details={
+                            "stream_type": "positions",
+                            "idle_time": positions_idle_time,
+                            "timeout": self._stream_timeout
+                        }
+                    )
+                    
+                    # Перезапускаем поток позиций
+                    await self._restart_stream("positions", account_id)
+                
+            except asyncio.CancelledError:
+                logger.info("Задача мониторинга потоков отменена")
+                break
+            except Exception as e:
+                logger.error(f"Ошибка в задаче мониторинга потоков: {e}")
+    
+    async def _restart_stream(self, stream_type: str, account_id: str):
+        """
+        Безопасный перезапуск потока данных
+        
+        Args:
+            stream_type: Тип потока ("trades" или "positions")
+            account_id: ID счета
+        """
+        try:
+            if stream_type == "trades":
+                # Отменяем текущую задачу потока сделок
+                if self._trades_stream_task and not self._trades_stream_task.done():
+                    logger.info("Отменяем текущую задачу потока сделок...")
+                    self._trades_stream_task.cancel()
+                    try:
+                        await asyncio.wait_for(asyncio.shield(self._trades_stream_task), timeout=2.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                
+                # Создаем новую задачу
+                logger.info("Создаем новую задачу потока сделок...")
+                self._trades_stream_task = asyncio.create_task(self._run_trades_stream(account_id))
+                
+                # Сбрасываем время последнего сообщения
+                self._last_trades_message = datetime.now()
+                
+                # Отправляем уведомление
+                await self._send_stream_restart_notification(
+                    stream_type="trades",
+                    account_id=account_id
+                )
+                
+            elif stream_type == "positions":
+                # Отменяем текущую задачу потока позиций
+                if self._positions_stream_task and not self._positions_stream_task.done():
+                    logger.info("Отменяем текущую задачу потока позиций...")
+                    self._positions_stream_task.cancel()
+                    try:
+                        await asyncio.wait_for(asyncio.shield(self._positions_stream_task), timeout=2.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                
+                # Создаем новую задачу
+                logger.info("Создаем новую задачу потока позиций...")
+                self._positions_stream_task = asyncio.create_task(self._run_positions_stream(account_id))
+                
+                # Сбрасываем время последнего сообщения
+                self._last_positions_message = datetime.now()
+                
+                # Отправляем уведомление
+                await self._send_stream_restart_notification(
+                    stream_type="positions",
+                    account_id=account_id
+                )
+            
+            logger.info(f"Поток {stream_type} успешно перезапущен")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при перезапуске потока {stream_type}: {e}")
+    
+    async def _send_stream_restart_notification(self, stream_type: str, account_id: str):
+        """
+        Отправка уведомления о перезапуске потока
+        
+        Args:
+            stream_type: Тип потока ("trades" или "positions")
+            account_id: ID счета
+        """
+        try:
+            # Проверяем наличие Telegram уведомлений
+            from src.notifications.telegram import TelegramNotifier
+            
+            # Получаем экземпляр TelegramNotifier из main.py
+            # Это не идеальное решение, но работает для отправки уведомлений
+            # В идеале нужно передавать notifier в конструкторе
+            import sys
+            main_module = sys.modules.get('__main__')
+            if hasattr(main_module, 'system') and hasattr(main_module.system, 'telegram_notifier'):
+                notifier = main_module.system.telegram_notifier
+                if notifier:
+                    message = (
+                        f"⚠️ <b>ВНИМАНИЕ! Перезапуск потока {stream_type}</b>\n\n"
+                        f"Поток {stream_type} не отвечал более {self._stream_timeout} секунд "
+                        f"и был автоматически перезапущен.\n\n"
+                        f"<i>Account ID:</i> <code>{account_id}</code>\n"
+                        f"<i>Время:</i> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    await notifier.send_message(message)
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомления о перезапуске потока: {e}")
     
     async def _process_security_position(self, security, account_id: str):
         """
