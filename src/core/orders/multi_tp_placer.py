@@ -45,8 +45,8 @@ class MultiTakeProfitPlacer(BaseOrderPlacer):
         
         orders = []
         
-        # Получаем размер лота для конвертации
-        _, lot_size = await self._convert_to_lots(position.figi, 1)
+        # Получаем размер лота напрямую из кэша
+        lot_size = await self.instrument_cache.get_lot_size(position.figi)
         
         # ВАЖНО: Конвертируем общее количество акций в лоты
         total_shares = position.quantity
