@@ -48,62 +48,77 @@ class MultiTakeProfitPlacer(BaseOrderPlacer):
         # Получаем размер лота для конвертации
         _, lot_size = await self._convert_to_lots(position.figi, 1)
         
-        # Шаг 1: Расширяем tp_levels, добавляя точное (дробное) количество для каждого уровня
+        # ВАЖНО: Конвертируем общее количество акций в лоты
+        total_shares = position.quantity
+        total_lots = total_shares // lot_size
+        
+        # Проверка: если лотов меньше, чем уровней TP
+        if total_lots < len(tp_levels):
+            logger.warning(
+                f"⚠️ Недостаточно лотов для распределения по всем уровням TP для {position.ticker}: "
+                f"{total_lots} лотов на {len(tp_levels)} уровней. "
+                f"Некоторые уровни будут пропущены."
+            )
+        
+        # Шаг 1: Расширяем tp_levels, добавляя точное (дробное) количество ЛОТОВ для каждого уровня
         tp_levels_extended = []
         for level_idx, (price, volume_pct) in enumerate(tp_levels, start=1):
-            exact_quantity = position.quantity * volume_pct / 100
-            tp_levels_extended.append((price, volume_pct, exact_quantity))
+            exact_lots = total_lots * volume_pct / 100
+            tp_levels_extended.append((price, volume_pct, exact_lots))
         
-        # Шаг 2: Умное распределение лотов
-        total_quantity = position.quantity
-        allocated_quantity = 0
+        # Шаг 2: Умное распределение ЛОТОВ
+        allocated_lots = 0
         
         # Сначала округляем вниз и считаем, сколько лотов "потеряли"
-        quantities = []
-        for price, volume_pct, exact_quantity in tp_levels_extended:
+        quantities_in_lots = []
+        for price, volume_pct, exact_lots in tp_levels_extended:
             # Округляем вниз до ближайшего целого
-            rounded_quantity = int(exact_quantity)
-            quantities.append(rounded_quantity)
-            allocated_quantity += rounded_quantity
+            rounded_lots = int(exact_lots)
+            quantities_in_lots.append(rounded_lots)
+            allocated_lots += rounded_lots
         
         # Распределяем оставшиеся лоты по уровням, начиная с тех, у которых была наибольшая дробная часть
-        remaining_quantity = total_quantity - allocated_quantity
+        remaining_lots = total_lots - allocated_lots
         
-        if remaining_quantity > 0:
+        if remaining_lots > 0:
             # Сортируем уровни по убыванию дробной части
-            fractional_parts = [(i, tp_levels_extended[i][2] - quantities[i]) 
+            fractional_parts = [(i, tp_levels_extended[i][2] - quantities_in_lots[i]) 
                                for i in range(len(tp_levels_extended))]
             fractional_parts.sort(key=lambda x: x[1], reverse=True)
             
             # Распределяем оставшиеся лоты
-            for i in range(min(remaining_quantity, len(fractional_parts))):
+            for i in range(min(remaining_lots, len(fractional_parts))):
                 level_idx = fractional_parts[i][0]
-                quantities[level_idx] += 1
+                quantities_in_lots[level_idx] += 1
         
-        # Проверяем, что сумма распределенных лотов равна общему количеству
-        assert sum(quantities) == total_quantity, f"Ошибка распределения лотов: {sum(quantities)} != {total_quantity}"
+        # Проверяем, что сумма распределенных лотов равна общему количеству лотов
+        assert sum(quantities_in_lots) == total_lots, f"Ошибка распределения лотов: {sum(quantities_in_lots)} != {total_lots}"
         
-        logger.info(f"Умное распределение лотов для {position.ticker}: {quantities} (всего {total_quantity})")
+        # Конвертируем лоты обратно в акции для логирования и API
+        quantities_in_shares = [lots * lot_size for lots in quantities_in_lots]
+        
+        logger.info(f"Умное распределение лотов для {position.ticker}: {quantities_in_lots} лотов = {quantities_in_shares} акций (всего {total_lots} лотов = {total_shares} акций)")
         
         # Выставляем ордера для каждого уровня
-        for level_idx, ((price, volume_pct, _), quantity) in enumerate(zip(tp_levels_extended, quantities), start=1):
+        for level_idx, ((price, volume_pct, _), lots, shares) in enumerate(zip(tp_levels_extended, quantities_in_lots, quantities_in_shares), start=1):
             try:
-                # Если количество меньше размера лота, пропускаем уровень
-                if quantity < lot_size:
+                # Если количество лотов равно 0, пропускаем уровень
+                if lots == 0:
                     logger.warning(
                         f"Пропуск уровня TP {level_idx} для {position.ticker}: "
-                        f"количество {quantity} меньше размера лота {lot_size}"
+                        f"0 лотов (0 акций)"
                     )
                     orders.append(None)
                     continue
                 
-                # Конвертируем количество из акций в лоты
-                quantity_in_lots, _ = await self._convert_to_lots(position.figi, quantity)
-                
                 logger.info(
                     f"Конвертация количества для {position.ticker} (уровень {level_idx}): "
-                    f"{quantity} акций → {quantity_in_lots} лотов (размер лота: {lot_size})"
+                    f"{shares} акций → {lots} лотов (размер лота: {lot_size})"
                 )
+                
+                # Используем количество в лотах напрямую
+                quantity_in_lots = lots
+                quantity = shares  # Для записи в БД и логирования
                 
                 # Выставляем ордер через API
                 response = await self.api_client.services.stop_orders.post_stop_order(
