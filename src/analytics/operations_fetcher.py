@@ -170,6 +170,22 @@ class OperationsFetcher:
             yield_value = None
             if item.yield_:
                 yield_value = float(item.yield_.units) + float(item.yield_.nano) / 1e9
+                
+                # Для фьючерсов конвертируем из пунктов в рубли
+                # Формула: (yield_value / min_price_increment) * min_price_increment_amount
+                if instrument_type and "FUTURES" in instrument_type and figi and self.instrument_cache:
+                    try:
+                        min_price_increment, min_price_increment_amount = await self.instrument_cache.get_price_step(figi)
+                        if min_price_increment and min_price_increment_amount and min_price_increment != 0:
+                            original_yield = yield_value
+                            yield_value = (yield_value / float(min_price_increment)) * float(min_price_increment_amount)
+                            logger.debug(
+                                f"Конвертация прибыли для фьючерса {ticker} ({figi}): "
+                                f"{original_yield} пунктов → {yield_value:.2f} руб. "
+                                f"(шаг={float(min_price_increment)}, стоимость шага={float(min_price_increment_amount)})"
+                            )
+                    except Exception as e:
+                        logger.error(f"Ошибка при конвертации прибыли для фьючерса {figi}: {e}")
             
             # Валюта
             currency = None
