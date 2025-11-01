@@ -259,56 +259,89 @@ class PositionManager:
         Returns:
             Position: Обновленная позиция
         """
-        async with self._lock:
-            # Получаем позицию из БД
-            position = await self.db.get_by_id(Position, position_id)
-            if not position:
-                raise ValueError(f"Позиция с ID {position_id} не найдена")
-            
-            # Обновляем поля
-            old_quantity = position.quantity
-            old_price = position.average_price
-            
-            position.quantity = new_quantity
-            
-            if new_price is not None:
-                position.average_price = float(new_price)
-            
-            # Сохраняем в БД
-            await self.db.update(
-                Position, 
-                position_id, 
-                {
-                    "quantity": new_quantity,
-                    "average_price": float(new_price) if new_price is not None else position.average_price
-                }
+        # Проверяем, вызывается ли метод из update_position_on_trade (где блокировка уже захвачена)
+        if self._lock.locked():
+            return await self._update_position_unlocked(
+                position_id=position_id,
+                new_quantity=new_quantity,
+                new_price=new_price
             )
+        else:
+            # Если вызывается напрямую, захватываем блокировку
+            async with self._lock:
+                return await self._update_position_unlocked(
+                    position_id=position_id,
+                    new_quantity=new_quantity,
+                    new_price=new_price
+                )
+    
+    async def _update_position_unlocked(
+        self,
+        position_id: int,
+        new_quantity: int,
+        new_price: Optional[Decimal] = None
+    ) -> Position:
+        """
+        Внутренний метод для обновления позиции без захвата блокировки.
+        Используется из update_position_on_trade, где блокировка уже захвачена.
+        
+        Args:
+            position_id: ID позиции
+            new_quantity: Новое количество лотов
+            new_price: Новая цена (если None, то цена не меняется)
             
-            # Обновляем кэш
-            await self.cache.update(position)
-            
-            logger.info(
-                f"Обновлена позиция: {position.ticker} ({position.figi}), "
-                f"количество: {old_quantity} -> {new_quantity}, "
-                f"цена: {old_price} -> {position.average_price}"
-            )
-            
-            # Логируем событие
-            await self.db.log_event(
-                event_type="POSITION_UPDATED",
-                account_id=position.account_id,
-                figi=position.figi,
-                ticker=position.ticker,
-                description=f"Обновлена позиция {position.ticker}, количество: {old_quantity} -> {new_quantity}",
-                details={
-                    "old_quantity": old_quantity,
-                    "new_quantity": new_quantity,
-                    "old_price": old_price,
-                    "new_price": position.average_price
-                }
-            )
-            
-            return position
+        Returns:
+            Position: Обновленная позиция
+        """
+        # Получаем позицию из БД
+        position = await self.db.get_by_id(Position, position_id)
+        if not position:
+            raise ValueError(f"Позиция с ID {position_id} не найдена")
+        
+        # Обновляем поля
+        old_quantity = position.quantity
+        old_price = position.average_price
+        
+        position.quantity = new_quantity
+        
+        if new_price is not None:
+            position.average_price = float(new_price)
+        
+        # Сохраняем в БД
+        await self.db.update(
+            Position, 
+            position_id, 
+            {
+                "quantity": new_quantity,
+                "average_price": float(new_price) if new_price is not None else position.average_price
+            }
+        )
+        
+        # Обновляем кэш
+        await self.cache.update(position)
+        
+        logger.info(
+            f"Обновлена позиция: {position.ticker} ({position.figi}), "
+            f"количество: {old_quantity} -> {new_quantity}, "
+            f"цена: {old_price} -> {position.average_price}"
+        )
+        
+        # Логируем событие
+        await self.db.log_event(
+            event_type="POSITION_UPDATED",
+            account_id=position.account_id,
+            figi=position.figi,
+            ticker=position.ticker,
+            description=f"Обновлена позиция {position.ticker}, количество: {old_quantity} -> {new_quantity}",
+            details={
+                "old_quantity": old_quantity,
+                "new_quantity": new_quantity,
+                "old_price": old_price,
+                "new_price": position.average_price
+            }
+        )
+        
+        return position
     
     async def close_position(self, position_id: int):
         """
