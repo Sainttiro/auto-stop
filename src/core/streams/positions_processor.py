@@ -542,53 +542,28 @@ class PositionsProcessor:
                     )
                     return
                 
+                # ВАЖНО: Пропускаем обработку изменения количества для отслеживаемых позиций
+                # Это будет обработано TradesStream, который получает точную информацию о каждой сделке
+                # Предотвращает race condition между потоками и дублирование ордеров
                 logger.info(
-                    f"🔄 Изменение количества в PositionsStream: {ticker}, "
-                    f"{position.quantity} -> {new_quantity}"
+                    f"ℹ️ Изменение количества для {ticker} ({position.quantity} -> {new_quantity}) "
+                    f"будет обработано TradesStream. Пропускаем обработку в PositionsStream."
                 )
                 
-                # Обновляем позицию
-                if avg_price > 0:
-                    await self.position_manager.update_position(
-                        position_id=position.id,
-                        new_quantity=new_quantity,
-                        new_price=avg_price
-                    )
-                else:
-                    await self.position_manager.update_position(
-                        position_id=position.id,
-                        new_quantity=new_quantity
-                    )
-                
-                # Отменяем старые ордера
-                cancelled = await self.order_executor.cancel_all_position_orders(position.id)
-                logger.info(f"Отменено {cancelled} старых ордеров для {ticker}")
-                
-                # Получаем обновленную позицию
-                updated_position = await self.position_manager.get_position(account_id, figi)
-                
-                # Получаем настройки инструмента
-                instrument_settings = self.instruments_config.instruments.get(ticker)
-                
-                # Рассчитываем новые SL/TP
-                sl_price, tp_price = await self.risk_calculator.calculate_levels(
+                # Логируем событие
+                await self.db.log_event(
+                    event_type="POSITION_UPDATE_SKIPPED",
+                    account_id=account_id,
                     figi=figi,
                     ticker=ticker,
-                    instrument_type=instrument_type,
-                    avg_price=Decimal(str(updated_position.average_price)),
-                    direction=updated_position.direction,
-                    instrument_settings=instrument_settings,
-                    account_id=account_id
+                    description=f"Пропущена обработка изменения количества для {ticker} в PositionsStream",
+                    details={
+                        "old_quantity": position.quantity,
+                        "new_quantity": new_quantity,
+                        "reason": "Предотвращение race condition с TradesStream"
+                    }
                 )
-                
-                # Выставляем новые ордера
-                await self.order_executor.place_sl_tp_orders(
-                    position=updated_position,
-                    sl_price=sl_price,
-                    tp_price=tp_price
-                )
-                
-                logger.info(f"✅ Позиция {ticker} обновлена и защищена новыми SL/TP")
+                return
         
         except Exception as e:
             logger.error(f"Ошибка при обработке позиции {figi}: {e}")
