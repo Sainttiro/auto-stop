@@ -238,6 +238,36 @@ class Database:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
     
+    async def get_recent_positions_by_figi(self, account_id: str, figi: str, seconds: int = 5) -> List[Position]:
+        """
+        Получение недавно созданных позиций по FIGI и ID счета
+        
+        Используется для объединения последовательных сделок, которые происходят
+        в течение короткого промежутка времени (например, 3 фьючерса по 1 лоту).
+        
+        Args:
+            account_id: ID счета
+            figi: FIGI инструмента
+            seconds: Количество секунд для поиска (по умолчанию 5)
+            
+        Returns:
+            List[Position]: Список найденных позиций, отсортированных по времени создания (новые в начале)
+        """
+        from datetime import datetime, timedelta
+        
+        # Вычисляем время, раньше которого не ищем
+        cutoff_time = datetime.utcnow() - timedelta(seconds=seconds)
+        
+        async with self.get_session() as session:
+            stmt = select(Position).where(
+                Position.account_id == account_id,
+                Position.figi == figi,
+                Position.created_at >= cutoff_time
+            ).order_by(Position.created_at.desc())
+            
+            result = await session.execute(stmt)
+            return result.scalars().all()
+    
     async def get_active_orders_by_position(self, position_id: int) -> List[Order]:
         """
         Получение активных ордеров для позиции

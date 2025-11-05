@@ -194,6 +194,27 @@ class PositionManager:
                 logger.warning(f"Позиция для {ticker} ({figi}) уже существует, обновляем")
                 return await self.update_position(existing.id, quantity, price)
             
+            # Проверяем, не была ли недавно создана позиция с тем же FIGI
+            # Это нужно для объединения последовательных сделок (например, 3 фьючерса по 1 лоту)
+            recent_positions = await self.db.get_recent_positions_by_figi(account_id, figi, seconds=5)
+            if recent_positions:
+                recent_position = recent_positions[0]  # Берем самую свежую позицию
+                
+                # Проверяем, что направление совпадает
+                if recent_position.direction == direction:
+                    logger.warning(
+                        f"Найдена недавно созданная позиция для {ticker} ({figi}), "
+                        f"объединяем сделки: {recent_position.quantity} + {quantity} лотов"
+                    )
+                    
+                    # Рассчитываем новую среднюю цену
+                    old_qty = recent_position.quantity
+                    old_price = Decimal(str(recent_position.average_price))
+                    new_price = self.calculator.calculate_average_price(old_qty, old_price, quantity, price)
+                    
+                    # Обновляем позицию
+                    return await self.update_position(recent_position.id, old_qty + quantity, new_price)
+            
             # Создаем новую позицию
             position = Position(
                 account_id=account_id,
@@ -495,15 +516,10 @@ class PositionManager:
                 # Определяем направление позиции в зависимости от направления сделки
                 if direction == "BUY":
                     position_direction = "LONG"
-                    logger.debug(f"update_position_on_trade: Создаем новую LONG позицию для {ticker}")
+                    logger.debug(f"update_position_on_trade: Создаем новую LONG позицию для {ticker}, quantity={quantity}, price={price}")
                 else:  # SELL
                     position_direction = "SHORT"
-                    logger.debug(f"update_position_on_trade: Создаем новую SHORT позицию для {ticker}")
-                
-                logger.debug(
-                    f"update_position_on_trade: Создаем новую LONG позицию для {ticker}, "
-                    f"quantity={quantity}, price={price}"
-                )
+                    logger.debug(f"update_position_on_trade: Создаем новую SHORT позицию для {ticker}, quantity={quantity}, price={price}")
                 
                 try:
                     # Используем _create_position_unlocked напрямую, так как блокировка уже захвачена
