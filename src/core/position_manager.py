@@ -4,6 +4,7 @@
 from typing import Optional, Dict, List, Tuple
 from decimal import Decimal
 import asyncio
+from datetime import datetime, timedelta
 
 from src.storage.database import Database
 from src.storage.models import Position, Order
@@ -39,6 +40,10 @@ class PositionManager:
         self.db = database
         self.instrument_cache = instrument_cache
         self._lock = asyncio.Lock()
+        
+        # Словарь для отслеживания недавно закрытых позиций
+        # Формат: {account_id+figi: {"timestamp": datetime, "direction": "LONG"/"SHORT"}}
+        self._recently_closed_positions = {}
         
         # Создаем компоненты
         self.cache = PositionCache(database)
@@ -387,6 +392,18 @@ class PositionManager:
             # Удаляем позицию из кэша
             await self.cache.remove(position.account_id, position.figi)
             
+            # Добавляем позицию в список недавно закрытых
+            position_key = f"{position.account_id}:{position.figi}"
+            self._recently_closed_positions[position_key] = {
+                "timestamp": datetime.utcnow(),
+                "direction": position.direction,
+                "ticker": position.ticker
+            }
+            logger.debug(
+                f"Позиция {position.ticker} ({position.figi}) добавлена в список недавно закрытых: "
+                f"direction={position.direction}"
+            )
+            
             # Логируем событие
             await self.db.log_event(
                 event_type="POSITION_CLOSED",
@@ -511,8 +528,54 @@ class PositionManager:
             else:
                 logger.debug(f"update_position_on_trade: Позиция {ticker} не найдена в БД")
             
-            # Если позиции нет, создаем новую
+            # Если позиции нет, проверяем, не была ли она недавно закрыта
             if not position:
+                # Проверяем, не была ли позиция недавно закрыта
+                position_key = f"{account_id}:{figi}"
+                recently_closed = self._recently_closed_positions.get(position_key)
+                
+                if recently_closed:
+                    # Проверяем, была ли позиция закрыта недавно (в течение 5 секунд)
+                    time_since_close = datetime.utcnow() - recently_closed["timestamp"]
+                    
+                    if time_since_close <= timedelta(seconds=5):
+                        # Проверяем, не пытаемся ли мы создать позицию противоположного направления
+                        old_direction = recently_closed["direction"]
+                        new_direction = "LONG" if direction == "BUY" else "SHORT"
+                        
+                        if old_direction != new_direction:
+                            logger.warning(
+                                f"⚠️ ПРЕДОТВРАЩЕНО: Попытка создания {new_direction} позиции сразу после закрытия "
+                                f"{old_direction} позиции для {ticker} ({figi}). "
+                                f"Позиция была закрыта {time_since_close.total_seconds():.1f} секунд назад."
+                            )
+                            
+                            # Логируем событие
+                            await self.db.log_event(
+                                event_type="POSITION_CREATION_PREVENTED",
+                                account_id=account_id,
+                                figi=figi,
+                                ticker=ticker,
+                                description=(
+                                    f"Предотвращено создание {new_direction} позиции сразу после закрытия "
+                                    f"{old_direction} позиции для {ticker}."
+                                ),
+                                details={
+                                    "old_direction": old_direction,
+                                    "new_direction": new_direction,
+                                    "seconds_since_close": time_since_close.total_seconds(),
+                                    "trade_direction": direction,
+                                    "quantity": quantity,
+                                    "price": float(price)
+                                }
+                            )
+                            
+                            # Удаляем запись о недавно закрытой позиции, чтобы не блокировать будущие операции
+                            del self._recently_closed_positions[position_key]
+                            
+                            # Не создаем новую позицию
+                            return None
+                
                 # Определяем направление позиции в зависимости от направления сделки
                 if direction == "BUY":
                     position_direction = "LONG"
