@@ -104,7 +104,16 @@ class OperationsFetcher:
                 
                 cursor = response.next_cursor
             
+            # Добавляем детальное логирование
+            buy_ops = len([op for op in operations if 'BUY' in op.get('type', '')])
+            sell_ops = len([op for op in operations if 'SELL' in op.get('type', '')])
+            with_yield = len([op for op in operations if op.get('yield_value') is not None])
+            
             logger.info(f"Всего получено операций: {len(operations)}")
+            logger.info(f"Из них BUY: {buy_ops}")
+            logger.info(f"Из них SELL: {sell_ops}")
+            logger.info(f"С прибылью/убытком: {with_yield}")
+            
             return operations
             
         except Exception as e:

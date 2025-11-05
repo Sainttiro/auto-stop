@@ -144,7 +144,18 @@ class OperationsCache:
                 op = self._dict_to_model(account_id, op_dict)
                 all_operations.append(op)
         
+        # Добавляем детальное логирование
+        buy_ops = len([op for op in all_operations if 'BUY' in op.type])
+        sell_ops = len([op for op in all_operations if 'SELL' in op.type])
+        with_yield = len([op for op in all_operations if op.yield_value is not None])
+        
         logger.info(f"Всего операций: {len(all_operations)}")
+        logger.info(f"Из них BUY: {buy_ops}")
+        logger.info(f"Из них SELL: {sell_ops}")
+        logger.info(f"С прибылью/убытком: {with_yield}")
+        logger.info(f"Операций из кэша: {len(cached_ops) if 'cached_ops' in locals() else 0}")
+        logger.info(f"Операций за сегодня: {len(today_ops) if 'today_ops' in locals() else 0}")
+        
         return all_operations
     
     async def _get_cached_operations(
