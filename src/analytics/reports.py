@@ -263,14 +263,16 @@ class ReportFormatter:
                 direction = "LONG" if 'SELL' in op.type else "SHORT"
                 
                 # Получаем информацию о ценах
+                # Для LONG: операция закрытия = SELL, операция открытия = BUY
+                # Для SHORT: операция закрытия = BUY, операция открытия = SELL
                 if direction == "LONG":
                     price_info = self._get_price_info(op, buys.get(op.ticker))
                 else:  # SHORT
                     price_info = self._get_price_info(op, sells.get(op.ticker))
                 
                 report_lines.append(
-                    f"• {op.ticker} [{'LONG' if 'SELL' in op.type else 'SHORT'}]: "
-                    f"+{op.yield_value:,.0f}₽ {price_info}"
+                    f"• {op.ticker} [{direction}]: "
+                    f"+{op.yield_value:,.2f}₽ {price_info}"
                 )
         else:
             report_lines.append("\n✅ Прибыльные:\n(пусто)")
@@ -289,8 +291,8 @@ class ReportFormatter:
                     price_info = self._get_price_info(op, sells.get(op.ticker))
                 
                 report_lines.append(
-                    f"• {op.ticker} [{'LONG' if 'SELL' in op.type else 'SHORT'}]: "
-                    f"{op.yield_value:,.0f}₽ {price_info}"
+                    f"• {op.ticker} [{direction}]: "
+                    f"{op.yield_value:,.2f}₽ {price_info}"
                 )
         else:
             report_lines.append("\n❌ Убыточные:\n(пусто)")
@@ -307,27 +309,27 @@ class ReportFormatter:
         
         return '\n'.join(report_lines)
     
-    def _get_price_info(self, sell_op: OperationCache, buy_op: OperationCache) -> str:
+    def _get_price_info(self, closing_op: OperationCache, opening_op: OperationCache) -> str:
         """
         Получение информации о ценах входа/выхода
         
         Args:
-            sell_op: Операция продажи
-            buy_op: Операция покупки
+            closing_op: Операция закрытия позиции (SELL для LONG, BUY для SHORT)
+            opening_op: Операция открытия позиции (BUY для LONG, SELL для SHORT)
             
         Returns:
             str: Строка с информацией о ценах
         """
-        if not sell_op.price:
+        if not closing_op.price:
             return ""
         
-        sell_price = sell_op.price
+        closing_price = closing_op.price
         
-        if buy_op and buy_op.price:
-            buy_price = buy_op.price
-            return f"({buy_price:.2f} → {sell_price:.2f})"
+        if opening_op and opening_op.price:
+            opening_price = opening_op.price
+            return f"({opening_price:.2f} → {closing_price:.2f})"
         
-        return f"(цена выхода: {sell_price:.2f})"
+        return f"(цена выхода: {closing_price:.2f})"
     
     def _get_open_positions(self, operations: List[OperationCache]) -> Dict:
         """
