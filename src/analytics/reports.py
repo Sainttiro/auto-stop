@@ -358,6 +358,9 @@ class ReportFormatter:
                     positions[ticker]['total_cost'] += abs(op.payment)
             elif 'SELL' in op.type:
                 positions[ticker]['quantity'] -= quantity
+                # Учитываем стоимость и для SELL операций (для корректного расчета средней цены SHORT позиций)
+                if op.price and op.payment:
+                    positions[ticker]['total_cost'] += abs(op.payment)
         
         # Обрабатываем открытые позиции и рассчитываем среднюю цену
         open_positions = {}
