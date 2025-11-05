@@ -492,18 +492,13 @@ class PositionManager:
             
             # Если позиции нет, создаем новую
             if not position:
-                # Если это продажа без позиции - это продажа старых акций, не отслеживаемых системой
-                # НЕ создаем SHORT позицию
-                if direction == "SELL":
-                    logger.info(
-                        f"Продажа {ticker} без позиции в системе. "
-                        f"Это продажа акций, не отслеживаемых системой. Пропускаем."
-                    )
-                    logger.debug(f"update_position_on_trade: Возвращаем None для {ticker} (SELL без позиции)")
-                    return None
-                
-                # Создаем только LONG позицию при покупке
-                position_direction = "LONG"
+                # Определяем направление позиции в зависимости от направления сделки
+                if direction == "BUY":
+                    position_direction = "LONG"
+                    logger.debug(f"update_position_on_trade: Создаем новую LONG позицию для {ticker}")
+                else:  # SELL
+                    position_direction = "SHORT"
+                    logger.debug(f"update_position_on_trade: Создаем новую SHORT позицию для {ticker}")
                 
                 logger.debug(
                     f"update_position_on_trade: Создаем новую LONG позицию для {ticker}, "
