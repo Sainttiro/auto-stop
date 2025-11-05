@@ -230,3 +230,16 @@ class OrderExecutor:
         """
         logger.info(f"Отмена всех ордеров для аккаунта {account_id}")
         return await self._order_canceller.cancel_account_orders(account_id)
+    
+    async def cancel_stop_loss_orders(self, position_id: int) -> int:
+        """
+        Отмена только стоп-лосс ордеров для позиции
+        
+        Args:
+            position_id: ID позиции
+            
+        Returns:
+            int: Количество отмененных ордеров
+        """
+        logger.info(f"Отмена стоп-лосс ордеров для позиции {position_id}")
+        return await self._order_canceller.cancel_stop_loss_orders(position_id)

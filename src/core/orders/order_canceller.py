@@ -139,3 +139,31 @@ class OrderCanceller(BaseOrderPlacer):
         
         logger.info(f"Отменено {cancelled_count} из {len(orders)} ордеров для аккаунта {account_id}")
         return cancelled_count
+    
+    async def cancel_stop_loss_orders(self, position_id: int) -> int:
+        """
+        Отмена только стоп-лосс ордеров для позиции
+        
+        Args:
+            position_id: ID позиции
+            
+        Returns:
+            int: Количество отмененных ордеров
+        """
+        # Получаем все активные ордера для позиции
+        orders = await self.db.get_active_orders_by_position(position_id)
+        
+        if not orders:
+            logger.debug(f"Нет активных ордеров для позиции {position_id}")
+            return 0
+        
+        # Отменяем только стоп-лосс ордера
+        cancelled_count = 0
+        for order in orders:
+            # Проверяем, является ли ордер стоп-лоссом
+            if order.order_purpose == "STOP_LOSS":
+                if await self.cancel_order(order):
+                    cancelled_count += 1
+        
+        logger.info(f"Отменено {cancelled_count} стоп-лосс ордеров для позиции {position_id}")
+        return cancelled_count

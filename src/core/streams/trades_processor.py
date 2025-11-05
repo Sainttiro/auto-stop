@@ -373,6 +373,8 @@ class TradesProcessor:
             
             if is_position_changed:
                 change_type = "увеличена" if position.quantity > old_quantity else "уменьшена"
+                is_position_decreased = position.quantity < old_quantity
+                
                 logger.warning(
                     f"⚠️ Позиция {ticker} {change_type}: "
                     f"{old_quantity} → {position.quantity} лотов. "
@@ -380,12 +382,76 @@ class TradesProcessor:
                 )
                 
                 try:
-                    # Отменяем ВСЕ старые ордера для этой позиции
-                    cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
-                    logger.info(f"Отменено {cancelled_count} старых ордеров для {ticker}")
+                    # Проверяем, активен ли Multi-TP и уменьшилась ли позиция
+                    use_multi_tp = False
+                    try:
+                        effective_settings = await self.settings_manager.get_effective_settings(
+                            account_id=account_id,
+                            ticker=ticker
+                        )
+                        use_multi_tp = effective_settings.get('multi_tp_enabled', False)
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка при получении настроек из БД для {ticker}: {e}")
+                        use_multi_tp = False
                     
-                    # Важно: после отмены старых ордеров нужно выставить новые
-                    # Это будет сделано ниже в коде
+                    # Если позиция уменьшилась и активен Multi-TP, отменяем только SL и выставляем новый в безубыток
+                    if is_position_decreased and use_multi_tp:
+                        logger.info(
+                            f"🔄 Позиция {ticker} уменьшена с Multi-TP активным. "
+                            f"Отменяем только SL и выставляем новый в безубыток."
+                        )
+                        
+                        # Отменяем только SL ордера
+                        cancelled_count = await self.order_executor.cancel_stop_loss_orders(position.id)
+                        logger.info(f"Отменено {cancelled_count} стоп-лосс ордеров для {ticker}")
+                        
+                        # Выставляем новый SL в безубыток (средняя цена + 0.10%)
+                        avg_price = Decimal(str(position.average_price))
+                        
+                        # Расчет цены безубытка в зависимости от направления позиции
+                        if position.direction == "LONG":
+                            breakeven_price = avg_price * Decimal('1.001')  # +0.10%
+                        else:
+                            breakeven_price = avg_price * Decimal('0.999')  # -0.10%
+                        
+                        logger.info(
+                            f"Выставление SL в безубыток для {ticker}: "
+                            f"средняя цена={avg_price}, безубыток={breakeven_price}"
+                        )
+                        
+                        # Выставляем SL в безубыток
+                        await self.order_executor.place_stop_loss_order(
+                            position=position,
+                            stop_price=breakeven_price
+                        )
+                        
+                        # Логируем событие
+                        await self.db.log_event(
+                            event_type="BREAKEVEN_SL_PLACED",
+                            account_id=account_id,
+                            figi=position.figi,
+                            ticker=position.ticker,
+                            description=f"Выставлен SL в безубыток для {ticker} после частичного закрытия",
+                            details={
+                                "avg_price": float(avg_price),
+                                "breakeven_price": float(breakeven_price),
+                                "quantity": position.quantity
+                            }
+                        )
+                        
+                        # Пропускаем дальнейшее выставление ордеров, так как TP ордера остались активными
+                        logger.info(
+                            f"✅ SL в безубыток выставлен для {ticker}. "
+                            f"TP ордера остались активными. Пропускаем дальнейшее выставление ордеров."
+                        )
+                        return
+                    else:
+                        # Стандартная логика - отменяем ВСЕ ордера
+                        cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
+                        logger.info(f"Отменено {cancelled_count} старых ордеров для {ticker}")
+                        
+                        # Важно: после отмены старых ордеров нужно выставить новые
+                        # Это будет сделано ниже в коде
                 except Exception as e:
                     logger.error(f"❌ Ошибка при отмене старых ордеров для {ticker}: {e}", exc_info=True)
                     # Логируем ошибку, но продолжаем выполнение
