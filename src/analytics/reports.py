@@ -244,12 +244,12 @@ class ReportFormatter:
         # Детали по сделкам
         report_lines.append("\n📋 Детали по сделкам:")
         
-        # Собираем все закрытые сделки (где есть yield_value)
-        closed_trades = [op for op in operations if op.yield_value is not None]
+        # Собираем все закрытые сделки (где есть yield_value и оно не равно 0)
+        closed_trades = [op for op in operations if op.yield_value is not None and op.yield_value != 0]
         
         # Разделяем на прибыльные и убыточные
         profitable_trades = [op for op in closed_trades if op.yield_value > 0]
-        losing_trades = [op for op in closed_trades if op.yield_value <= 0]
+        losing_trades = [op for op in closed_trades if op.yield_value < 0]  # Строго меньше 0
         
         # Словарь для поиска соответствующих операций открытия позиции
         buys = {op.ticker: op for op in operations if 'BUY' in op.type and op.ticker}
@@ -259,20 +259,17 @@ class ReportFormatter:
         if profitable_trades:
             report_lines.append("\n✅ Прибыльные:")
             for op in profitable_trades:
-                # Определяем направление позиции
-                direction = "LONG" if 'SELL' in op.type else "SHORT"
-                
                 # Получаем информацию о ценах
-                # Для LONG: операция закрытия = SELL, операция открытия = BUY
-                # Для SHORT: операция закрытия = BUY, операция открытия = SELL
-                if direction == "LONG":
+                # Определяем тип операции для поиска соответствующей пары
+                if 'SELL' in op.type:
+                    # SELL операция (закрытие LONG) - ищем соответствующую BUY
                     price_info = self._get_price_info(op, buys.get(op.ticker))
-                else:  # SHORT
+                else:
+                    # BUY операция (закрытие SHORT) - ищем соответствующую SELL
                     price_info = self._get_price_info(op, sells.get(op.ticker))
                 
                 report_lines.append(
-                    f"• {op.ticker} [{direction}]: "
-                    f"+{op.yield_value:,.2f}₽ {price_info}"
+                    f"• {op.ticker}: +{op.yield_value:,.2f}₽ {price_info}"
                 )
         else:
             report_lines.append("\n✅ Прибыльные:\n(пусто)")
@@ -281,18 +278,16 @@ class ReportFormatter:
         if losing_trades:
             report_lines.append("\n❌ Убыточные:")
             for op in losing_trades:
-                # Определяем направление позиции
-                direction = "LONG" if 'SELL' in op.type else "SHORT"
-                
                 # Получаем информацию о ценах
-                if direction == "LONG":
+                if 'SELL' in op.type:
+                    # SELL операция (закрытие LONG) - ищем соответствующую BUY
                     price_info = self._get_price_info(op, buys.get(op.ticker))
-                else:  # SHORT
+                else:
+                    # BUY операция (закрытие SHORT) - ищем соответствующую SELL
                     price_info = self._get_price_info(op, sells.get(op.ticker))
                 
                 report_lines.append(
-                    f"• {op.ticker} [{direction}]: "
-                    f"{op.yield_value:,.2f}₽ {price_info}"
+                    f"• {op.ticker}: {op.yield_value:,.2f}₽ {price_info}"
                 )
         else:
             report_lines.append("\n❌ Убыточные:\n(пусто)")
@@ -302,9 +297,8 @@ class ReportFormatter:
         if open_positions:
             report_lines.append("\n⏳ Открытые позиции:")
             for ticker, position in open_positions.items():
-                direction = position.get('direction', 'LONG')
                 report_lines.append(
-                    f"• {ticker} [{direction}]: {position['quantity']} лотов @ {position['price']:,.2f}"
+                    f"• {ticker}: {position['quantity']} лотов @ {position['price']:,.2f}"
                 )
         
         return '\n'.join(report_lines)
