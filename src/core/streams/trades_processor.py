@@ -268,7 +268,11 @@ class TradesProcessor:
         for trade in order_trades.trades:
             # Создаем уникальный ID для каждой части сделки
             trade_time = trade.date_time if hasattr(trade, 'date_time') else datetime.utcnow()
-            trade_unique_id = f"{order_id}_{trade_time.timestamp()}"
+            trade_price = quotation_to_decimal(trade.price)
+            
+            # ИСПРАВЛЕНИЕ БАГА №1: Используем более уникальный ID для каждой части сделки
+            # Включаем quantity и price для различения частичных исполнений
+            trade_unique_id = f"{order_id}_{trade_time.timestamp()}_{trade.quantity}_{trade_price}"
             
             # Проверяем, не обрабатывали ли мы уже эту конкретную часть сделки
             async with self._lock:
@@ -416,6 +420,11 @@ class TradesProcessor:
                         cancelled_count = await self.order_executor.cancel_stop_loss_orders(position.id)
                         logger.info(f"Отменено {cancelled_count} стоп-лосс ордеров для {ticker}")
                         
+                        # ИСПРАВЛЕНИЕ БАГА №2: Добавляем округление цены безубытка
+                        # Получаем минимальный шаг цены
+                        from src.utils.converters import round_to_step
+                        min_price_increment, _ = await self.instrument_cache.get_price_step(position.figi)
+                        
                         # Выставляем новый SL в безубыток (средняя цена + 0.10%)
                         avg_price = Decimal(str(position.average_price))
                         
@@ -425,37 +434,69 @@ class TradesProcessor:
                         else:
                             breakeven_price = avg_price * Decimal('0.999')  # -0.10%
                         
+                        # Округляем до минимального шага цены
+                        breakeven_price = round_to_step(breakeven_price, min_price_increment)
+                        
                         logger.info(
                             f"Выставление SL в безубыток для {ticker}: "
-                            f"средняя цена={avg_price}, безубыток={breakeven_price}"
+                            f"средняя цена={avg_price}, безубыток={breakeven_price} (округлено до шага {min_price_increment})"
                         )
                         
-                        # Выставляем SL в безубыток
-                        await self.order_executor.place_stop_loss_order(
-                            position=position,
-                            stop_price=breakeven_price
-                        )
+                        # ИСПРАВЛЕНИЕ БАГА №3: Добавляем обработку ошибок при выставлении SL
+                        try:
+                            # Выставляем SL в безубыток
+                            sl_order = await self.order_executor.place_stop_loss_order(
+                                position=position,
+                                stop_price=breakeven_price
+                            )
+                            
+                            if sl_order:
+                                # Успех - логируем событие
+                                await self.db.log_event(
+                                    event_type="BREAKEVEN_SL_PLACED",
+                                    account_id=account_id,
+                                    figi=position.figi,
+                                    ticker=position.ticker,
+                                    description=f"Выставлен SL в безубыток для {ticker} после частичного закрытия",
+                                    details={
+                                        "avg_price": float(avg_price),
+                                        "breakeven_price": float(breakeven_price),
+                                        "quantity": position.quantity
+                                    }
+                                )
+                                
+                                # Пропускаем дальнейшее выставление ордеров, так как TP ордера остались активными
+                                logger.info(
+                                    f"✅ SL в безубыток выставлен для {ticker}. "
+                                    f"TP ордера остались активными. Пропускаем дальнейшее выставление ордеров."
+                                )
+                                return
+                            else:
+                                # SL не выставлен - продолжаем стандартную логику
+                                logger.error(
+                                    f"❌ Не удалось выставить SL в безубыток для {ticker}. "
+                                    f"Продолжаем стандартную логику выставления ордеров."
+                                )
+                                
+                        except Exception as e:
+                            # Ошибка при выставлении SL - продолжаем стандартную логику
+                            logger.error(
+                                f"❌ Ошибка при выставлении SL в безубыток для {ticker}: {e}. "
+                                f"Продолжаем стандартную логику выставления ордеров.",
+                                exc_info=True
+                            )
+                            
+                            # Логируем ошибку
+                            await self.db.log_event(
+                                event_type="ERROR",
+                                account_id=account_id,
+                                description=f"Ошибка при выставлении SL в безубыток для {ticker}: {str(e)}",
+                                details={"error": str(e), "breakeven_price": float(breakeven_price)}
+                            )
                         
-                        # Логируем событие
-                        await self.db.log_event(
-                            event_type="BREAKEVEN_SL_PLACED",
-                            account_id=account_id,
-                            figi=position.figi,
-                            ticker=position.ticker,
-                            description=f"Выставлен SL в безубыток для {ticker} после частичного закрытия",
-                            details={
-                                "avg_price": float(avg_price),
-                                "breakeven_price": float(breakeven_price),
-                                "quantity": position.quantity
-                            }
-                        )
-                        
-                        # Пропускаем дальнейшее выставление ордеров, так как TP ордера остались активными
-                        logger.info(
-                            f"✅ SL в безубыток выставлен для {ticker}. "
-                            f"TP ордера остались активными. Пропускаем дальнейшее выставление ордеров."
-                        )
-                        return
+                        # Если мы здесь, значит SL в безубыток не выставился
+                        # НЕ выходим из функции, продолжаем стандартную логику
+                        # (код ниже отменит все ордера и выставит стандартные SL/TP)
                     else:
                         # Стандартная логика - отменяем ВСЕ ордера
                         cancelled_count = await self.order_executor.cancel_all_position_orders(position.id)
