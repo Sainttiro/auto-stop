@@ -535,46 +535,49 @@ class PositionManager:
                 recently_closed = self._recently_closed_positions.get(position_key)
                 
                 if recently_closed:
-                    # Проверяем, была ли позиция закрыта недавно (в течение 5 секунд)
+                    # Проверяем, была ли позиция закрыта недавно (в течение 10 секунд)
                     time_since_close = datetime.utcnow() - recently_closed["timestamp"]
                     
-                    if time_since_close <= timedelta(seconds=5):
-                        # Проверяем, не пытаемся ли мы создать позицию противоположного направления
+                    # ИСПРАВЛЕНИЕ: Блокируем ЛЮБЫЕ сделки в течение 10 секунд после закрытия позиции
+                    if time_since_close <= timedelta(seconds=10):
                         old_direction = recently_closed["direction"]
                         new_direction = "LONG" if direction == "BUY" else "SHORT"
                         
-                        if old_direction != new_direction:
-                            logger.warning(
-                                f"⚠️ ПРЕДОТВРАЩЕНО: Попытка создания {new_direction} позиции сразу после закрытия "
-                                f"{old_direction} позиции для {ticker} ({figi}). "
-                                f"Позиция была закрыта {time_since_close.total_seconds():.1f} секунд назад."
-                            )
-                            
-                            # Логируем событие
-                            await self.db.log_event(
-                                event_type="POSITION_CREATION_PREVENTED",
-                                account_id=account_id,
-                                figi=figi,
-                                ticker=ticker,
-                                description=(
-                                    f"Предотвращено создание {new_direction} позиции сразу после закрытия "
-                                    f"{old_direction} позиции для {ticker}."
-                                ),
-                                details={
-                                    "old_direction": old_direction,
-                                    "new_direction": new_direction,
-                                    "seconds_since_close": time_since_close.total_seconds(),
-                                    "trade_direction": direction,
-                                    "quantity": quantity,
-                                    "price": float(price)
-                                }
-                            )
-                            
-                            # Удаляем запись о недавно закрытой позиции, чтобы не блокировать будущие операции
-                            del self._recently_closed_positions[position_key]
-                            
-                            # Не создаем новую позицию
-                            return None
+                        # Блокируем создание ЛЮБОЙ позиции (не только противоположного направления)
+                        logger.warning(
+                            f"⚠️ ПРЕДОТВРАЩЕНО: Попытка создания {new_direction} позиции через "
+                            f"{time_since_close.total_seconds():.1f} сек после закрытия "
+                            f"{old_direction} позиции для {ticker} ({figi}). "
+                            f"Это может быть срабатывание стоп-лосса закрытой позиции."
+                        )
+                        
+                        # Логируем событие
+                        await self.db.log_event(
+                            event_type="POSITION_CREATION_PREVENTED",
+                            account_id=account_id,
+                            figi=figi,
+                            ticker=ticker,
+                            description=(
+                                f"Предотвращено создание {new_direction} позиции через "
+                                f"{time_since_close.total_seconds():.1f} сек после закрытия "
+                                f"{old_direction} позиции для {ticker}."
+                            ),
+                            details={
+                                "old_direction": old_direction,
+                                "new_direction": new_direction,
+                                "seconds_since_close": time_since_close.total_seconds(),
+                                "trade_direction": direction,
+                                "quantity": quantity,
+                                "price": float(price),
+                                "reason": "Блокировка после закрытия позиции (защита от стоп-лосса)"
+                            }
+                        )
+                        
+                        # Удаляем запись о недавно закрытой позиции, чтобы не блокировать будущие операции
+                        del self._recently_closed_positions[position_key]
+                        
+                        # Не создаем новую позицию
+                        return None
                 
                 # Определяем направление позиции в зависимости от направления сделки
                 if direction == "BUY":

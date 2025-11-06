@@ -263,6 +263,8 @@ class TradesProcessor:
         # Для каждой сделки создаем уникальный ID на основе времени исполнения
         # Это позволяет обрабатывать частичное исполнение одного ордера
         total_quantity = 0
+        all_parts_processed = True  # Флаг для отслеживания, все ли части уже обработаны
+        
         for trade in order_trades.trades:
             # Создаем уникальный ID для каждой части сделки
             trade_time = trade.date_time if hasattr(trade, 'date_time') else datetime.utcnow()
@@ -274,16 +276,25 @@ class TradesProcessor:
                     logger.debug(f"Часть сделки {trade_unique_id} уже обработана, пропускаем")
                     continue
                 
+                # Если хотя бы одна часть не обработана, устанавливаем флаг
+                all_parts_processed = False
+                
                 # Добавляем в множество обработанных
                 self._processed_trades.add(trade_unique_id)
             
             # Суммируем количество из всех частей
             total_quantity += trade.quantity
         
-        # Если все части уже были обработаны, выходим
+        # ИСПРАВЛЕНИЕ: Даже если все части уже обработаны, продолжаем выполнение
+        # для проверки позиции и выставления ордеров
         if total_quantity == 0:
-            logger.debug(f"Все части ордера {order_id} уже обработаны")
-            return
+            if all_parts_processed:
+                logger.debug(f"Все части ордера {order_id} уже обработаны, но продолжаем проверку позиции")
+            else:
+                logger.warning(
+                    f"⚠️ Странная ситуация: total_quantity=0 для ордера {order_id}, "
+                    f"но не все части помечены как обработанные. Продолжаем обработку."
+                )
         
         try:
             logger.debug(f"Обработка сделки: order_id={order_id}, figi={figi}, direction={direction}")
