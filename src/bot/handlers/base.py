@@ -28,6 +28,7 @@ class BaseHandler:
         self.chat_id = bot_instance.chat_id
         self.position_manager = bot_instance.position_manager
         self.system_control = bot_instance.system_control
+        self.api_client = bot_instance.api_client
         self.operations_cache = bot_instance.operations_cache
         self.statistics_calculator = bot_instance.statistics_calculator
         self.report_formatter = bot_instance.report_formatter

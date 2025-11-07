@@ -35,6 +35,7 @@ class TelegramBot:
         database: Database,
         position_manager: PositionManager,
         system_control: Optional[object] = None,
+        api_client: Optional[object] = None,
         operations_cache: Optional[OperationsCache] = None,
         statistics_calculator: Optional[StatisticsCalculator] = None,
         report_formatter: Optional[ReportFormatter] = None
@@ -57,6 +58,7 @@ class TelegramBot:
         self.db = database
         self.position_manager = position_manager
         self.system_control = system_control
+        self.api_client = api_client
         self.operations_cache = operations_cache
         self.statistics_calculator = statistics_calculator
         self.report_formatter = report_formatter

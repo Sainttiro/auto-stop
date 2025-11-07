@@ -165,6 +165,7 @@ class AutoStopSystem:
                     database=self.database,
                     position_manager=self.position_manager,
                     system_control=self,
+                    api_client=self.api_client,
                     operations_cache=self.operations_cache,
                     statistics_calculator=self.statistics_calculator,
                     report_formatter=self.report_formatter
