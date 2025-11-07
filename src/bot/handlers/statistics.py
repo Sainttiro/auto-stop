@@ -181,8 +181,7 @@ class StatisticsHandler(BaseHandler):
                 period="day",
                 start_year=datetime.now().year,
                 api_client=self.api_client,
-                account_id=active_account.account_id,
-                instrument_cache=self.instrument_cache
+                account_id=active_account.account_id
             )
             
             # Отправка отчета (может быть длинным, разбиваем если нужно)

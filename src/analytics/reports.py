@@ -201,8 +201,7 @@ class ReportFormatter:
         period: str,
         start_year: int,
         api_client=None,
-        account_id: str = None,
-        instrument_cache=None
+        account_id: str = None
     ) -> str:
         """
         Форматирование детального отчета с информацией по каждой сделке
@@ -214,7 +213,6 @@ class ReportFormatter:
             start_year: Год начала периода
             api_client: API клиент для получения актуальных позиций (опционально)
             account_id: ID счета для получения позиций (опционально)
-            instrument_cache: Кэш информации об инструментах (опционально)
             
         Returns:
             str: Отформатированный отчет
@@ -299,8 +297,8 @@ class ReportFormatter:
             report_lines.append("\n❌ Убыточные:\n(пусто)")
         
         # Открытые позиции - получаем актуальные данные от брокера
-        if api_client and account_id and instrument_cache:
-            open_positions = await self._get_actual_positions(api_client, account_id, instrument_cache)
+        if api_client and account_id:
+            open_positions = await self._get_actual_positions(api_client, account_id)
         else:
             # Fallback на расчет из операций
             open_positions = self._get_open_positions(operations)
@@ -314,14 +312,13 @@ class ReportFormatter:
         
         return '\n'.join(report_lines)
     
-    async def _get_actual_positions(self, api_client, account_id: str, instrument_cache) -> Dict:
+    async def _get_actual_positions(self, api_client, account_id: str) -> Dict:
         """
         Получение актуальных позиций от брокера через API
         
         Args:
             api_client: API клиент
             account_id: ID счета
-            instrument_cache: Кэш информации об инструментах (не используется, оставлен для совместимости)
             
         Returns:
             Dict: Словарь позиций {ticker: {quantity, price}}
