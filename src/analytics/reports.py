@@ -324,42 +324,37 @@ class ReportFormatter:
             Dict: Словарь позиций {ticker: {quantity, price}}
         """
         try:
-            # Получаем портфель от брокера
-            portfolio = await api_client.get_portfolio(account_id)
+            # Используем get_positions (рекомендуемый метод для получения списка позиций)
+            positions_response = await api_client.get_positions(account_id)
             
             positions = {}
-            for position in portfolio.positions:
+            
+            # Обрабатываем ценно-бумажные позиции (securities)
+            # Валютные позиции (money) автоматически исключаются
+            for position in positions_response.securities:
                 # Пропускаем закрытые позиции
-                quantity_units = position.quantity.units
-                quantity_nano = position.quantity.nano
-                
-                if quantity_units == 0 and quantity_nano == 0:
+                if position.balance == 0:
                     continue
                 
-                # Конвертируем количество
-                quantity = quantity_units + quantity_nano / 1e9
+                # Получаем тикер через API по FIGI
+                try:
+                    instrument = await api_client.get_instrument_by_figi(position.figi)
+                    ticker = instrument.ticker
+                except Exception as e:
+                    logger.warning(f"Не удалось получить тикер для {position.figi}: {e}")
+                    ticker = position.figi  # Fallback на FIGI
                 
-                # Конвертируем среднюю цену
-                avg_price_units = position.average_position_price.units
-                avg_price_nano = position.average_position_price.nano
-                avg_price = avg_price_units + avg_price_nano / 1e9
+                # Количество в лотах
+                quantity = position.balance
                 
-                # Получаем тикер напрямую из ответа API
-                # В PortfolioPosition есть поле instrument_type с тикером
-                ticker = position.instrument_type if hasattr(position, 'instrument_type') else None
+                # Средняя цена позиции
+                avg_price = (position.average_position_price.units + 
+                           position.average_position_price.nano / 1e9)
                 
-                if ticker:
-                    positions[ticker] = {
-                        'quantity': int(quantity),
-                        'price': avg_price
-                    }
-                else:
-                    # Если тикер не найден, используем FIGI как fallback
-                    logger.warning(f"Тикер не найден для позиции {position.figi}, используем FIGI")
-                    positions[position.figi] = {
-                        'quantity': int(quantity),
-                        'price': avg_price
-                    }
+                positions[ticker] = {
+                    'quantity': int(quantity),
+                    'price': avg_price
+                }
             
             logger.info(f"Получено {len(positions)} актуальных позиций от брокера")
             return positions
