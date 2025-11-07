@@ -46,8 +46,11 @@ class Position(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Связь с ордерами
-    orders = relationship("Order", back_populates="position")
+    # Связь с ордерами (каскадное удаление)
+    orders = relationship("Order", back_populates="position", cascade="all, delete-orphan")
+    
+    # Связь с уровнями Multi-TP (каскадное удаление)
+    multi_tp_levels = relationship("MultiTakeProfitLevel", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Position(ticker={self.ticker}, quantity={self.quantity}, avg_price={self.average_price})>"

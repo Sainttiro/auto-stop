@@ -389,6 +389,15 @@ class PositionManager:
             for order in active_orders:
                 await self.db.update(Order, order.id, {"status": "CANCELLED"})
             
+            # ИСПРАВЛЕНИЕ: Удаляем уровни Multi-TP перед удалением позиции
+            try:
+                deleted_levels = await self.multi_tp_manager.delete_all_levels(position_id)
+                if deleted_levels > 0:
+                    logger.debug(f"Удалено {deleted_levels} уровней Multi-TP для позиции {position.ticker}")
+            except Exception as e:
+                logger.error(f"Ошибка при удалении уровней Multi-TP для позиции {position_id}: {e}")
+                # Продолжаем закрытие позиции даже если не удалось удалить уровни
+            
             # Удаляем позицию из кэша
             await self.cache.remove(position.account_id, position.figi)
             

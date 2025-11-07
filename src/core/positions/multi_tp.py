@@ -71,6 +71,18 @@ class MultiTakeProfitManager:
         
         return new_levels
     
+    async def delete_all_levels(self, position_id: int) -> int:
+        """
+        Удаление всех уровней для позиции (публичный метод)
+        
+        Args:
+            position_id: ID позиции
+            
+        Returns:
+            int: Количество удаленных уровней
+        """
+        return await self._delete_existing_levels(position_id)
+    
     async def _delete_existing_levels(self, position_id: int) -> int:
         """
         Удаление существующих уровней для позиции

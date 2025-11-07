@@ -8,6 +8,7 @@ from src.api.instrument_info import InstrumentInfoCache
 from src.core.position_manager import PositionManager
 from src.core.risk_calculator import RiskCalculator
 from src.core.order_executor import OrderExecutor
+from src.core.cleanup_scheduler import CleanupScheduler
 from src.storage.database import Database
 from src.config.settings import InstrumentsConfig, Config
 from src.config.settings_manager import SettingsManager
@@ -68,6 +69,9 @@ class StreamHandler:
         # Флаг для управления потоками
         self._running = False
         
+        # Планировщик очистки старых позиций
+        self._cleanup_scheduler: Optional[CleanupScheduler] = None
+        
         # Создаем компоненты для работы с потоками
         self._activation_checker = ActivationChecker(database)
         
@@ -118,6 +122,12 @@ class StreamHandler:
         
         self._running = True
         
+        # Синхронизация позиций с брокером при старте
+        await self._sync_positions_with_broker(account_id)
+        
+        # Запуск планировщика очистки старых позиций
+        await self._start_cleanup_scheduler(account_id)
+        
         # Запускаем потоки
         await self._trades_processor.start(account_id)
         await self._positions_processor.start(account_id)
@@ -138,12 +148,122 @@ class StreamHandler:
         logger.info("Останавливаем потоки...")
         self._running = False
         
+        # Останавливаем планировщик очистки
+        if self._cleanup_scheduler:
+            await self._cleanup_scheduler.stop()
+        
         # Останавливаем компоненты
         await self._stream_monitor.stop()
         await self._trades_processor.stop()
         await self._positions_processor.stop()
         
         logger.info("Обработчик потоков остановлен")
+    
+    async def _sync_positions_with_broker(self, account_id: str) -> None:
+        """
+        Синхронизация позиций с брокером при старте
+        
+        Args:
+            account_id: ID счета
+        """
+        try:
+            logger.info("🔄 Синхронизация позиций с брокером...")
+            
+            # Обнаруживаем расхождения
+            discrepancies = await self.position_manager.detect_discrepancies(
+                account_id=account_id,
+                api_client=self.api_client
+            )
+            
+            # Проверяем наличие расхождений
+            has_discrepancies = (
+                discrepancies.get('missing_in_broker') or
+                discrepancies.get('missing_in_db') or
+                discrepancies.get('quantity_mismatch')
+            )
+            
+            if has_discrepancies:
+                logger.warning(
+                    f"⚠️ Обнаружены расхождения между БД и брокером:\n"
+                    f"  - Позиций в БД, но нет у брокера: {len(discrepancies.get('missing_in_broker', []))}\n"
+                    f"  - Позиций у брокера, но нет в БД: {len(discrepancies.get('missing_in_db', []))}\n"
+                    f"  - Расхождений в количестве: {len(discrepancies.get('quantity_mismatch', []))}"
+                )
+                
+                # Устраняем расхождения
+                result = await self.position_manager.resolve_discrepancies(
+                    account_id=account_id,
+                    api_client=self.api_client
+                )
+                
+                logger.info(
+                    f"✅ Расхождения устранены:\n"
+                    f"  - Удалено из БД: {result.get('removed_from_db', 0)}\n"
+                    f"  - Добавлено в БД: {result.get('added_to_db', 0)}\n"
+                    f"  - Обновлено количество: {result.get('updated_quantity', 0)}"
+                )
+                
+                # Логируем событие
+                await self.db.log_event(
+                    event_type="SYNC_COMPLETED",
+                    account_id=account_id,
+                    description="Синхронизация позиций с брокером завершена",
+                    details={
+                        "discrepancies": discrepancies,
+                        "result": result
+                    }
+                )
+            else:
+                logger.info("✅ Расхождений не обнаружено, БД синхронизирована с брокером")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при синхронизации с брокером: {e}", exc_info=True)
+            
+            # Логируем ошибку
+            await self.db.log_event(
+                event_type="SYNC_ERROR",
+                account_id=account_id,
+                description=f"Ошибка при синхронизации с брокером: {str(e)}",
+                details={"error": str(e)}
+            )
+            
+            # Не пробрасываем исключение, чтобы система могла продолжить работу
+            logger.warning("⚠️ Синхронизация не удалась, но система продолжит работу")
+    
+    async def _start_cleanup_scheduler(self, account_id: str) -> None:
+        """
+        Запуск планировщика очистки старых позиций
+        
+        Args:
+            account_id: ID счета
+        """
+        try:
+            logger.info("🧹 Запуск планировщика очистки старых позиций...")
+            
+            # Создаем планировщик
+            self._cleanup_scheduler = CleanupScheduler(
+                position_manager=self.position_manager,
+                database=self.db
+            )
+            
+            # Запускаем планировщик
+            await self._cleanup_scheduler.start(account_id)
+            
+            logger.info("✅ Планировщик очистки запущен (время очистки: 00:01)")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при запуске планировщика очистки: {e}", exc_info=True)
+            
+            # Логируем ошибку
+            await self.db.log_event(
+                event_type="CLEANUP_SCHEDULER_ERROR",
+                account_id=account_id,
+                description=f"Ошибка при запуске планировщика очистки: {str(e)}",
+                details={"error": str(e)}
+            )
+            
+            # Не пробрасываем исключение, чтобы система могла продолжить работу
+            logger.warning("⚠️ Планировщик очистки не запущен, но система продолжит работу")
     
     async def _send_stream_restart_notification(self, stream_name: str, message: str) -> None:
         """
