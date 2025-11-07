@@ -316,6 +316,10 @@ class ReportFormatter:
         """
         Получение актуальных позиций от брокера через API
         
+        Использует комбинацию двух методов:
+        - get_positions() для получения списка позиций с тикерами
+        - get_portfolio() для получения средних цен позиций
+        
         Args:
             api_client: API клиент
             account_id: ID счета
@@ -324,32 +328,41 @@ class ReportFormatter:
             Dict: Словарь позиций {ticker: {quantity, price}}
         """
         try:
-            # Используем get_positions (рекомендуемый метод для получения списка позиций)
+            # 1. Получаем позиции с тикерами через get_positions
             positions_response = await api_client.get_positions(account_id)
             
-            positions = {}
+            # 2. Получаем портфель для средних цен через get_portfolio
+            portfolio = await api_client.get_portfolio(account_id)
             
-            # Обрабатываем ценно-бумажные позиции (securities)
-            # Валютные позиции (money) автоматически исключаются
+            # Создаем словарь средних цен по FIGI
+            prices_by_figi = {}
+            for portfolio_pos in portfolio.positions:
+                # Пропускаем закрытые позиции
+                quantity_units = portfolio_pos.quantity.units
+                quantity_nano = portfolio_pos.quantity.nano
+                
+                if quantity_units == 0 and quantity_nano == 0:
+                    continue
+                
+                # Получаем среднюю цену
+                avg_price = (portfolio_pos.average_position_price.units + 
+                           portfolio_pos.average_position_price.nano / 1e9)
+                
+                prices_by_figi[portfolio_pos.figi] = avg_price
+            
+            # 3. Объединяем данные: тикеры из get_positions + цены из get_portfolio
+            positions = {}
             for position in positions_response.securities:
                 # Пропускаем закрытые позиции
                 if position.balance == 0:
                     continue
                 
-                # Получаем тикер через API по FIGI
-                try:
-                    instrument = await api_client.get_instrument_by_figi(position.figi)
-                    ticker = instrument.ticker
-                except Exception as e:
-                    logger.warning(f"Не удалось получить тикер для {position.figi}: {e}")
-                    ticker = position.figi  # Fallback на FIGI
-                
-                # Количество в лотах
+                # Используем тикер напрямую из ответа API
+                ticker = position.ticker
                 quantity = position.balance
                 
-                # Средняя цена позиции
-                avg_price = (position.average_position_price.units + 
-                           position.average_position_price.nano / 1e9)
+                # Получаем среднюю цену из портфеля по FIGI
+                avg_price = prices_by_figi.get(position.figi, 0.0)
                 
                 positions[ticker] = {
                     'quantity': int(quantity),
