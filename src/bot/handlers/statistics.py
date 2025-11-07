@@ -174,12 +174,14 @@ class StatisticsHandler(BaseHandler):
             # Расчет статистики
             stats = self.statistics_calculator.calculate_statistics(operations, period="day")
             
-            # Форматирование детального отчета
-            report = self.report_formatter.format_detailed_report(
+            # Форматирование детального отчета с актуальными позициями от брокера
+            report = await self.report_formatter.format_detailed_report(
                 stats, 
                 operations=operations,
                 period="day",
-                start_year=datetime.now().year
+                start_year=datetime.now().year,
+                api_client=self.api_client,
+                account_id=active_account.account_id
             )
             
             # Отправка отчета (может быть длинным, разбиваем если нужно)

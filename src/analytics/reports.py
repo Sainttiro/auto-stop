@@ -194,12 +194,14 @@ class ReportFormatter:
         
         return '\n'.join(report_lines)
     
-    def format_detailed_report(
+    async def format_detailed_report(
         self,
         stats: Dict,
         operations: List[OperationCache],
         period: str,
-        start_year: int
+        start_year: int,
+        api_client=None,
+        account_id: str = None
     ) -> str:
         """
         Форматирование детального отчета с информацией по каждой сделке
@@ -209,6 +211,8 @@ class ReportFormatter:
             operations: Список операций
             period: Период (month, week, day)
             start_year: Год начала периода
+            api_client: API клиент для получения актуальных позиций (опционально)
+            account_id: ID счета для получения позиций (опционально)
             
         Returns:
             str: Отформатированный отчет
@@ -292,8 +296,13 @@ class ReportFormatter:
         else:
             report_lines.append("\n❌ Убыточные:\n(пусто)")
         
-        # Открытые позиции
-        open_positions = self._get_open_positions(operations)
+        # Открытые позиции - получаем актуальные данные от брокера
+        if api_client and account_id:
+            open_positions = await self._get_actual_positions(api_client, account_id)
+        else:
+            # Fallback на расчет из операций
+            open_positions = self._get_open_positions(operations)
+        
         if open_positions:
             report_lines.append("\n⏳ Открытые позиции:")
             for ticker, position in open_positions.items():
@@ -302,6 +311,57 @@ class ReportFormatter:
                 )
         
         return '\n'.join(report_lines)
+    
+    async def _get_actual_positions(self, api_client, account_id: str) -> Dict:
+        """
+        Получение актуальных позиций от брокера через API
+        
+        Args:
+            api_client: API клиент
+            account_id: ID счета
+            
+        Returns:
+            Dict: Словарь позиций {ticker: {quantity, price}}
+        """
+        try:
+            # Получаем портфель от брокера
+            portfolio = await api_client.get_portfolio(account_id)
+            
+            positions = {}
+            for position in portfolio.positions:
+                # Пропускаем закрытые позиции
+                quantity_units = position.quantity.units
+                quantity_nano = position.quantity.nano
+                
+                if quantity_units == 0 and quantity_nano == 0:
+                    continue
+                
+                # Конвертируем количество
+                quantity = quantity_units + quantity_nano / 1e9
+                
+                # Конвертируем среднюю цену
+                avg_price_units = position.average_position_price.units
+                avg_price_nano = position.average_position_price.nano
+                avg_price = avg_price_units + avg_price_nano / 1e9
+                
+                # Получаем тикер через instrument_cache
+                from src.api.instrument_info import InstrumentInfoCache
+                instrument_cache = InstrumentInfoCache(api_client)
+                ticker = await instrument_cache.get_ticker(position.figi)
+                
+                if ticker:
+                    positions[ticker] = {
+                        'quantity': int(quantity),
+                        'price': avg_price
+                    }
+            
+            logger.info(f"Получено {len(positions)} актуальных позиций от брокера")
+            return positions
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения актуальных позиций от брокера: {e}")
+            # В случае ошибки возвращаем пустой словарь
+            return {}
     
     def _get_price_info(self, closing_op: OperationCache, opening_op: OperationCache) -> str:
         """

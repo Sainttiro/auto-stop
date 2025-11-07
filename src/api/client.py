@@ -146,3 +146,18 @@ class TinkoffAPIClient:
             self.services.operations.get_positions(account_id=account_id)
         )
         return response
+    
+    async def get_portfolio(self, account_id: str):
+        """
+        Получение портфеля по счету
+        
+        Args:
+            account_id: ID счета
+            
+        Returns:
+            PortfolioResponse: Информация о портфеле
+        """
+        response = await self.with_retry(
+            self.services.operations.get_portfolio(account_id=account_id)
+        )
+        return response
