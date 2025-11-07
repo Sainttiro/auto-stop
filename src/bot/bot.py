@@ -3,7 +3,7 @@ Telegram Bot для управления системой Auto-Stop
 """
 
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime
 from telegram import Bot, BotCommand, Update
 from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
