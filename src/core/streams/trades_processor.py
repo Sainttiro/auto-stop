@@ -582,6 +582,29 @@ class TradesProcessor:
                 )
                 logger.info(f"Выставлены ордера: SL={'OK' if sl_order else 'FAIL'}, TP={len([o for o in tp_orders if o])} из {len(tp_orders)}")
                 
+                # ИСПРАВЛЕНИЕ RACE CONDITION: Проверяем, что позиция все еще существует
+                # перед настройкой Multi-TP уровней
+                position_check = await self.position_manager.get_position(account_id, figi)
+                if not position_check:
+                    logger.warning(
+                        f"⚠️ Позиция {ticker} (ID {position.id}) была закрыта во время обработки сделки. "
+                        f"Пропускаем setup Multi-TP уровней."
+                    )
+                    
+                    # Логируем событие
+                    await self.db.log_event(
+                        event_type="RACE_CONDITION_PREVENTED",
+                        account_id=account_id,
+                        figi=figi,
+                        ticker=ticker,
+                        description=f"Предотвращена race condition: позиция {ticker} была закрыта до setup Multi-TP",
+                        details={
+                            "position_id": position.id,
+                            "reason": "Позиция закрыта между выставлением ордеров и setup Multi-TP"
+                        }
+                    )
+                    return
+                
                 # Сохраняем уровни в БД
                 await self.position_manager.setup_multi_tp_levels(
                     position_id=position.id,

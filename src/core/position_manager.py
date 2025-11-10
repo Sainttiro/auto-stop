@@ -306,7 +306,7 @@ class PositionManager:
         position_id: int,
         new_quantity: int,
         new_price: Optional[Decimal] = None
-    ) -> Position:
+    ) -> Optional[Position]:
         """
         Внутренний метод для обновления позиции без захвата блокировки.
         Используется из update_position_on_trade, где блокировка уже захвачена.
@@ -317,12 +317,17 @@ class PositionManager:
             new_price: Новая цена (если None, то цена не меняется)
             
         Returns:
-            Position: Обновленная позиция
+            Optional[Position]: Обновленная позиция или None если позиция была удалена
         """
         # Получаем позицию из БД
         position = await self.db.get_by_id(Position, position_id)
         if not position:
-            raise ValueError(f"Позиция с ID {position_id} не найдена")
+            # ИСПРАВЛЕНИЕ RACE CONDITION: Позиция была удалена во время обработки
+            logger.warning(
+                f"⚠️ Позиция с ID {position_id} была удалена во время обработки. "
+                f"Пропускаем обновление."
+            )
+            return None
         
         # Обновляем поля
         old_quantity = position.quantity
@@ -655,6 +660,29 @@ class PositionManager:
                 
                 updated_position = await self.update_position(position.id, new_quantity, new_price)
                 
+                # ИСПРАВЛЕНИЕ RACE CONDITION: Проверяем, что позиция не была удалена
+                if not updated_position:
+                    logger.warning(
+                        f"⚠️ Позиция {ticker} (ID {position.id}) была удалена во время обновления. "
+                        f"Возвращаем None."
+                    )
+                    
+                    # Логируем событие
+                    await self.db.log_event(
+                        event_type="RACE_CONDITION_PREVENTED",
+                        account_id=account_id,
+                        figi=figi,
+                        ticker=ticker,
+                        description=f"Предотвращена race condition: позиция {ticker} была удалена во время увеличения",
+                        details={
+                            "position_id": position.id,
+                            "old_quantity": old_quantity,
+                            "new_quantity": new_quantity,
+                            "reason": "Позиция удалена между получением и обновлением"
+                        }
+                    )
+                    return None
+                
                 logger.debug(
                     f"update_position_on_trade: Позиция {ticker} увеличена: "
                     f"id={updated_position.id}, quantity={updated_position.quantity}, "
@@ -709,6 +737,29 @@ class PositionManager:
                     )
                     
                     updated_position = await self.update_position(position.id, new_quantity)
+                    
+                    # ИСПРАВЛЕНИЕ RACE CONDITION: Проверяем, что позиция не была удалена
+                    if not updated_position:
+                        logger.warning(
+                            f"⚠️ Позиция {ticker} (ID {position.id}) была удалена во время обновления. "
+                            f"Возвращаем None."
+                        )
+                        
+                        # Логируем событие
+                        await self.db.log_event(
+                            event_type="RACE_CONDITION_PREVENTED",
+                            account_id=account_id,
+                            figi=figi,
+                            ticker=ticker,
+                            description=f"Предотвращена race condition: позиция {ticker} была удалена во время уменьшения",
+                            details={
+                                "position_id": position.id,
+                                "old_quantity": old_quantity,
+                                "new_quantity": new_quantity,
+                                "reason": "Позиция удалена между получением и обновлением"
+                            }
+                        )
+                        return None
                     
                     logger.debug(
                         f"update_position_on_trade: Позиция {ticker} уменьшена: "
