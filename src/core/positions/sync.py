@@ -57,8 +57,20 @@ class PositionSynchronizer:
         logger.info(f"Начало синхронизации позиций из брокера для счета {account_id}")
         
         try:
-            # Запрашиваем текущие позиции через API
+            # Запрашиваем текущие позиции через API (для тикеров)
             positions_response = await api_client.get_positions(account_id)
+            
+            # Запрашиваем портфель (для средних цен)
+            portfolio = await api_client.get_portfolio(account_id)
+            
+            # Создаем словарь средних цен по FIGI
+            avg_prices = {}
+            for position in portfolio.positions:
+                figi = position.figi
+                if position.average_position_price:
+                    avg_price = Decimal(str(position.average_position_price.units)) + \
+                               Decimal(str(position.average_position_price.nano)) / Decimal(1_000_000_000)
+                    avg_prices[figi] = avg_price
             
             synced_count = 0
             
@@ -97,23 +109,16 @@ class PositionSynchronizer:
                         direction = "SHORT"
                         quantity = abs(balance)
                     
-                    # Получаем среднюю цену из API
-                    # Для акций используем average_position_price
-                    avg_price = Decimal(0)
-                    if hasattr(security, 'average_position_price') and security.average_position_price:
-                        avg_price = Decimal(str(security.average_position_price.units)) + \
-                                   Decimal(str(security.average_position_price.nano)) / Decimal(1_000_000_000)
+                    # Получаем среднюю цену из портфеля
+                    avg_price = avg_prices.get(figi)
                     
-                    # Если средняя цена не доступна, используем заглушку
-                    # SL/TP не будут выставлены, но позиция будет синхронизирована
-                    # При первой сделке средняя цена обновится и SL/TP выставятся
-                    if avg_price == 0:
-                        avg_price = Decimal(1)
+                    if not avg_price or avg_price == 0:
                         logger.warning(
                             f"Средняя цена для {ticker} недоступна из API. "
-                            f"Позиция будет синхронизирована с заглушкой (цена=1). "
-                            f"SL/TP будут выставлены при первой сделке."
+                            f"Позиция НЕ будет синхронизирована. "
+                            f"Она будет создана при первой сделке."
                         )
+                        continue
                     
                     # Создаем позицию в БД
                     logger.info(
