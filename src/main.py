@@ -116,18 +116,10 @@ class AutoStopSystem:
             )
             await self.position_manager.initialize()
             
-            # Очистка старых позиций из БД при запуске
-            # Система работает только с позициями, открытыми после запуска
-            logger.info("Очистка старых позиций из базы данных...")
-            await self.database.clear_all_positions()
-            
-            # Очистка кэша позиций после очистки БД
-            self.position_manager.clear_cache()
-            
-            # СИНХРОНИЗАЦИЯ ОТКЛЮЧЕНА
-            # Система НЕ подхватывает позиции, открытые до запуска
-            # SL/TP выставляются только на новые позиции, открытые после запуска системы
-            logger.info("Синхронизация позиций отключена. Система будет отслеживать только новые позиции.")
+            # НЕ очищаем позиции при запуске - синхронизация сделает это автоматически
+            # logger.info("Очистка старых позиций из базы данных...")
+            # await self.database.clear_all_positions()
+            # self.position_manager.clear_cache()
             
             # Инициализация менеджера настроек
             from src.config.settings_manager import SettingsManager
