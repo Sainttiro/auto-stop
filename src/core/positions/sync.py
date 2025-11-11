@@ -279,9 +279,15 @@ class PositionSynchronizer:
             
             if not discrepancies["has_discrepancies"]:
                 logger.info("Нет расхождений для устранения")
-                return {"resolved": 0}
+                return {
+                    "removed_from_db": 0,
+                    "added_to_db": 0,
+                    "updated_quantity": 0
+                }
             
-            resolved_count = 0
+            removed_count = 0
+            added_count = 0
+            updated_count = 0
             
             # Синхронизируем отсутствующие в системе позиции
             for broker_pos in discrepancies["missing_in_system"]:
@@ -295,8 +301,9 @@ class PositionSynchronizer:
                         continue
                     
                     # Синхронизируем позицию
-                    await self.sync_from_broker(account_id, api_client)
-                    resolved_count += 1
+                    synced = await self.sync_from_broker(account_id, api_client)
+                    if synced > 0:
+                        added_count += synced
                     
                 except Exception as e:
                     logger.error(f"Ошибка при синхронизации позиции {broker_pos['figi']}: {e}")
@@ -331,7 +338,7 @@ class PositionSynchronizer:
                         }
                     )
                     
-                    resolved_count += 1
+                    removed_count += 1
                     
                 except Exception as e:
                     logger.error(f"Ошибка при закрытии позиции {system_pos['figi']}: {e}")
@@ -372,14 +379,23 @@ class PositionSynchronizer:
                         }
                     )
                     
-                    resolved_count += 1
+                    updated_count += 1
                     
                 except Exception as e:
                     logger.error(f"Ошибка при обновлении позиции {mismatch['figi']}: {e}")
             
-            logger.info(f"Устранено {resolved_count} расхождений позиций")
-            return {"resolved": resolved_count}
+            logger.info(f"Устранено {removed_count + added_count + updated_count} расхождений позиций")
+            return {
+                "removed_from_db": removed_count,
+                "added_to_db": added_count,
+                "updated_quantity": updated_count
+            }
             
         except Exception as e:
             logger.error(f"Ошибка при устранении расхождений позиций: {e}")
-            return {"error": str(e), "resolved": 0}
+            return {
+                "error": str(e),
+                "removed_from_db": 0,
+                "added_to_db": 0,
+                "updated_quantity": 0
+            }
