@@ -638,24 +638,35 @@ class PositionManager:
             old_quantity = position.quantity
             old_price = Decimal(str(position.average_price))
             
-            # Определяем, увеличивается или уменьшается позиция
+            # ИСПРАВЛЕНИЕ КРИТИЧЕСКОЙ ОШИБКИ: Определяем, увеличивается или уменьшается позиция
+            # Для LONG позиции:
+            #   - BUY = увеличение (усреднение)
+            #   - SELL = уменьшение (закрытие)
+            # Для SHORT позиции:
+            #   - SELL = уменьшение (закрытие) ← БЫЛО НЕПРАВИЛЬНО!
+            #   - BUY = увеличение (усреднение)
             is_increasing = (position.direction == "LONG" and direction == "BUY") or \
+                           (position.direction == "SHORT" and direction == "BUY")
+            
+            is_decreasing = (position.direction == "LONG" and direction == "SELL") or \
                            (position.direction == "SHORT" and direction == "SELL")
             
             logger.debug(
                 f"update_position_on_trade: Обновление существующей позиции {ticker}: "
                 f"old_quantity={old_quantity}, old_price={old_price}, "
-                f"is_increasing={is_increasing}, direction={direction}"
+                f"is_increasing={is_increasing}, is_decreasing={is_decreasing}, "
+                f"position_direction={position.direction}, trade_direction={direction}"
             )
             
             if is_increasing:
-                # Увеличение позиции - рассчитываем новую среднюю цену
+                # Увеличение позиции (усреднение) - рассчитываем новую среднюю цену
                 new_quantity = old_quantity + quantity
                 new_price = await self.calculate_average_price(old_quantity, old_price, quantity, price)
                 
-                logger.debug(
-                    f"update_position_on_trade: Увеличение позиции {ticker}: "
-                    f"new_quantity={new_quantity}, new_price={new_price}"
+                logger.info(
+                    f"📈 УСРЕДНЕНИЕ позиции {ticker} ({position.direction}): "
+                    f"{old_quantity} + {quantity} = {new_quantity} лотов, "
+                    f"средняя цена: {old_price} → {new_price}"
                 )
                 
                 updated_position = await self.update_position(position.id, new_quantity, new_price)
@@ -690,11 +701,16 @@ class PositionManager:
                 )
                 
                 return updated_position
-            else:
-                # Уменьшение позиции - средняя цена не меняется
+            elif is_decreasing:
+                # Уменьшение позиции (закрытие) - средняя цена не меняется
                 new_quantity = old_quantity - quantity
                 
-                # Если новое количество <= 0, закрываем позицию
+                logger.info(
+                    f"📉 ЗАКРЫТИЕ позиции {ticker} ({position.direction}): "
+                    f"{old_quantity} - {quantity} = {new_quantity} лотов"
+                )
+                
+                # Если новое количество <= 0, закрываем позицию полностью
                 if new_quantity <= 0:
                     # Если новое количество < 0, это попытка переворота позиции
                     if new_quantity < 0:
@@ -761,13 +777,40 @@ class PositionManager:
                         )
                         return None
                     
-                    logger.debug(
-                        f"update_position_on_trade: Позиция {ticker} уменьшена: "
-                        f"id={updated_position.id}, quantity={updated_position.quantity}, "
+                    logger.info(
+                        f"✅ Позиция {ticker} частично закрыта: "
+                        f"id={updated_position.id}, осталось {updated_position.quantity} лотов, "
                         f"avg_price={updated_position.average_price}"
                     )
                     
                     return updated_position
+            else:
+                # Это не должно происходить, но на всякий случай логируем
+                logger.error(
+                    f"❌ ОШИБКА ЛОГИКИ: Неопределенная операция для {ticker}! "
+                    f"position_direction={position.direction}, trade_direction={direction}, "
+                    f"is_increasing={is_increasing}, is_decreasing={is_decreasing}"
+                )
+                
+                # Логируем критическое событие
+                await self.db.log_event(
+                    event_type="LOGIC_ERROR",
+                    account_id=account_id,
+                    figi=figi,
+                    ticker=ticker,
+                    description=f"Неопределенная операция для {ticker}",
+                    details={
+                        "position_direction": position.direction,
+                        "trade_direction": direction,
+                        "is_increasing": is_increasing,
+                        "is_decreasing": is_decreasing,
+                        "quantity": quantity,
+                        "price": float(price)
+                    }
+                )
+                
+                # Возвращаем позицию без изменений
+                return position
     
     async def setup_multi_tp_levels(
         self,
