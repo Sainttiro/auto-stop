@@ -2,9 +2,9 @@
 Обработка потока сделок
 """
 import asyncio
-from typing import Set, Optional, Any
+from typing import Set, Optional, Any, Dict
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from tinkoff.invest import (
     OrderTrades,
@@ -77,6 +77,13 @@ class TradesProcessor:
         # Множество обработанных сделок для избежания дублирования
         # Используем trade_id вместо order_id, так как один ордер может генерировать несколько сделок
         self._processed_trades: Set[str] = set()
+        
+        # ИСПРАВЛЕНИЕ: Словарь для отслеживания обработанных order_id
+        # Защита от дубликатов сообщений от API
+        # Формат: {order_id: {"timestamp": datetime, "parts": int}}
+        self._processed_orders: Dict[str, Dict] = {}
+        # Время жизни записи в кэше (5 минут)
+        self._cache_ttl = timedelta(minutes=5)
     
     def set_stream_monitor(self, stream_monitor) -> None:
         """
@@ -259,6 +266,62 @@ class TradesProcessor:
         if not order_trades.trades:
             logger.warning(f"Ордер {order_id} не содержит сделок")
             return
+        
+        # ИСПРАВЛЕНИЕ: Проверка на дубликаты сообщений от API
+        # API Tinkoff иногда отправляет одно и то же сообщение OrderTrades несколько раз
+        parts_count = len(order_trades.trades)
+        
+        async with self._lock:
+            now = datetime.utcnow()
+            
+            # Очищаем старые записи из кэша (старше 5 минут)
+            expired_orders = [
+                oid for oid, data in self._processed_orders.items()
+                if now - data["timestamp"] > self._cache_ttl
+            ]
+            for oid in expired_orders:
+                del self._processed_orders[oid]
+                logger.debug(f"Удалена устаревшая запись для order_id={oid} из кэша")
+            
+            # Проверяем, обрабатывали ли мы этот order_id недавно
+            if order_id in self._processed_orders:
+                last_processed = self._processed_orders[order_id]
+                time_since_last = now - last_processed["timestamp"]
+                
+                # Если обрабатывали менее 10 секунд назад - это дубликат от API
+                if time_since_last < timedelta(seconds=10):
+                    logger.warning(
+                        f"⚠️ ДУБЛИКАТ от API: order_id={order_id} уже обработан "
+                        f"{time_since_last.total_seconds():.1f} сек назад. "
+                        f"Пропускаем повторную обработку."
+                    )
+                    
+                    # Логируем событие
+                    await self.db.log_event(
+                        event_type="DUPLICATE_TRADE_PREVENTED",
+                        account_id=account_id,
+                        figi=figi,
+                        description=f"Предотвращена повторная обработка order_id={order_id}",
+                        details={
+                            "order_id": order_id,
+                            "time_since_last": time_since_last.total_seconds(),
+                            "parts_count": parts_count,
+                            "direction": direction
+                        }
+                    )
+                    
+                    return
+            
+            # Отмечаем, что обработали этот order_id
+            self._processed_orders[order_id] = {
+                "timestamp": now,
+                "parts": parts_count
+            }
+            
+            logger.debug(
+                f"Зарегистрирован order_id={order_id} в кэше обработанных "
+                f"({parts_count} частей, direction={direction})"
+            )
         
         # Для каждой сделки создаем уникальный ID на основе времени исполнения
         # Это позволяет обрабатывать частичное исполнение одного ордера
