@@ -643,13 +643,13 @@ class PositionManager:
             #   - BUY = увеличение (усреднение)
             #   - SELL = уменьшение (закрытие)
             # Для SHORT позиции:
-            #   - SELL = уменьшение (закрытие) ← БЫЛО НЕПРАВИЛЬНО!
-            #   - BUY = увеличение (усреднение)
+            #   - SELL = увеличение (усреднение) ← ИСПРАВЛЕНО!
+            #   - BUY = уменьшение (закрытие) ← ИСПРАВЛЕНО!
             is_increasing = (position.direction == "LONG" and direction == "BUY") or \
-                           (position.direction == "SHORT" and direction == "BUY")
+                           (position.direction == "SHORT" and direction == "SELL")
             
             is_decreasing = (position.direction == "LONG" and direction == "SELL") or \
-                           (position.direction == "SHORT" and direction == "SELL")
+                           (position.direction == "SHORT" and direction == "BUY")
             
             logger.debug(
                 f"update_position_on_trade: Обновление существующей позиции {ticker}: "
